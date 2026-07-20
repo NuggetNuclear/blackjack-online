@@ -55,7 +55,7 @@ export default function BettingPanel({
       {/* BUG-FIX: Show "Time's Up!" overlay when betting window closes */}
       {bettingTimeExpired && (
         <div className="rounded-full border border-red-500/30 bg-red-900/40 px-4 py-1.5 text-sm font-bold uppercase tracking-widest text-red-300 animate-bounce-in">
-          ⏰ {t.betting.closesIn} 0s
+          {t.betting.closesIn} 0s
         </div>
       )}
 
@@ -105,7 +105,7 @@ export default function BettingPanel({
           className="btn-cartoon px-6 py-2.5 bg-yellow-400 hover:bg-yellow-300 disabled:bg-gray-600
             text-gray-900 text-sm border-yellow-600"
         >
-          {t.betting.deal} 🃏
+          {t.betting.deal}
         </button>
 
         {currentBet > 0 && (

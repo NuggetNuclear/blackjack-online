@@ -40,10 +40,10 @@ export default function HandDisplay({
   };
 
   const resultLabels: Record<string, string> = {
-    win: `🎉 ${t.results.win}`,
-    lose: `💔 ${t.results.lose}`,
-    push: `🤝 ${t.results.push}`,
-    blackjack: `🃏 ${t.results.blackjack}`,
+    win: `${t.results.win}`,
+    lose: `${t.results.lose}`,
+    push: `${t.results.push}`,
+    blackjack: `${t.results.blackjack}`,
   };
 
   return (

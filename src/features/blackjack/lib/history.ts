@@ -86,15 +86,15 @@ export async function clearHistory(): Promise<void> {
 
 export function formatRecord(r: BetRecord): string {
   const resultEmoji: Record<string, string> = {
-    win: '✅',
-    lose: '❌',
-    push: '🤝',
-    blackjack: '🃏',
+    win: 'WIN ',
+    lose: 'LOSE ',
+    push: 'PUSH ',
+    blackjack: 'BJ ',
   };
   const delta = r.result === 'lose'
     ? `-${formatCurrency(r.bet)}`
     : r.result === 'push'
       ? formatCurrency(0)
       : `+${formatCurrency(r.payout - r.bet)}`;
-  return `${resultEmoji[r.result]} Bet ${formatCurrency(r.bet)} -> ${delta} (Bal: ${formatCurrency(r.balanceAfter)})`;
+  return `[${resultEmoji[r.result]}] Bet ${formatCurrency(r.bet)} -> ${delta} (Bal: ${formatCurrency(r.balanceAfter)})`;
 }

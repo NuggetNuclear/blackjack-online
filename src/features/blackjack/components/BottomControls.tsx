@@ -61,7 +61,7 @@ export default function BottomControls({
           }`}>
             {bettingTimeExpired
               ? `⏰ ${t.betting.closesIn} 0s`
-              : `${t.betting.closesIn} ${bettingSecondsLeft}s`}
+              : `⏰ ${t.betting.closesIn} ${bettingSecondsLeft}s`}
           </div>
         </RoundTimerFrame>
       )}
@@ -69,7 +69,7 @@ export default function BottomControls({
       {/* Action buttons for active player */}
       {canAct && (
         autoplay.enabled && autoplayRoundActive ? (
-          <div className="text-amber-400/80 text-sm font-bold animate-pulse tracking-wider text-outline-sm">🤖 {t.autoplay.active}</div>
+          <div className="text-amber-400/80 text-sm font-bold animate-pulse tracking-wider text-outline-sm">{t.autoplay.active}</div>
         ) : (
           <div className="flex flex-col items-center gap-2">
             {/* Player action countdown */}
@@ -104,7 +104,7 @@ export default function BottomControls({
           bettingTimeExpired={bettingTimeExpired} />
       )}
       {gameState.phase === 'betting' && myPlayer?.ready && !isSpectator && (
-        <div className="text-yellow-300/70 text-sm font-bold animate-pulse text-outline-sm">⏳ {t.controls.waitingForPlayers}</div>
+        <div className="text-yellow-300/70 text-sm font-bold animate-pulse text-outline-sm">{t.controls.waitingForPlayers}</div>
       )}
 
       {/* Results phase: admin-only "New Round" button; non-host sees waiting message */}
@@ -124,7 +124,7 @@ export default function BottomControls({
           ) : (
             /* Non-host players see a waiting message */
             <div className="rounded-full bg-yellow-600 border-b-[4px] border-yellow-800 px-6 py-2.5 text-sm font-bold text-yellow-50 shadow-xl uppercase tracking-wider">
-              ⏳ {t.controls.waitingForNewRound}
+              {t.controls.waitingForNewRound}
             </div>
           )}
         </div>

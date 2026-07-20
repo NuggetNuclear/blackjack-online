@@ -38,14 +38,14 @@ export default function AutoplayPanel({ config, onChange }: AutoplayPanelProps) 
             : 'bg-gray-600 text-white/60 border-gray-700 hover:bg-gray-500'
           }`}
       >
-        🤖 {config.enabled ? t.autoplay.on : t.autoplay.off}
+        {config.enabled ? t.autoplay.on : t.autoplay.off}
       </button>
 
       {open && (
         <div className="absolute top-full mt-2 right-0 bg-gray-900/98 border-[3px] border-amber-500/60 rounded-2xl shadow-2xl animate-bounce-in z-[70] w-[260px]">
           {/* Header */}
           <div className="flex items-center justify-between px-4 pt-3 pb-2 border-b border-white/10">
-            <span className="text-white text-sm font-bold">🤖 {t.autoplay.title}</span>
+            <span className="text-white text-sm font-bold">{t.autoplay.title}</span>
             <button
               onClick={toggleEnabled}
               className={`relative w-10 h-5 rounded-full transition-colors ${config.enabled ? 'bg-amber-500' : 'bg-gray-600'}`}

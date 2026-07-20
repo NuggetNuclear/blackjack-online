@@ -198,7 +198,7 @@ export default function GameTable({
 
         {/* Dealer */}
         <div className="flex flex-col items-center pt-4 pb-1">
-          <HandDisplay hand={gameState.dealer} label={`🎩 ${t.game.dealer}`} isDealer
+          <HandDisplay hand={gameState.dealer} label={`${t.game.dealer}`} isDealer
             showValue={gameState.phase === 'results' || gameState.phase === 'dealer-turn'} />
         </div>
 
@@ -206,10 +206,10 @@ export default function GameTable({
         <div className="relative my-1 mx-auto w-[70%] sm:w-[60%] h-6 flex items-center">
           <div className="absolute inset-x-0 top-1/2 h-[2px] bg-yellow-500/15 rounded-full" />
           <span className="absolute left-1/2 -translate-x-1/2 bg-[#0a3018] px-3 text-yellow-400/50 text-[10px] sm:text-xs font-bold tracking-[0.1em] sm:tracking-[0.2em] uppercase text-outline-sm whitespace-nowrap">
-            {gameState.phase === 'betting' && `🎰 ${t.table.placeBets}`}
-            {gameState.phase === 'playing' && `🃏 ${t.table.playersTurn}`}
-            {gameState.phase === 'dealer-turn' && `🎩 ${t.table.dealerTurn}`}
-            {gameState.phase === 'results' && `🏆 ${t.table.results}`}
+            {gameState.phase === 'betting' && `${t.table.placeBets}`}
+            {gameState.phase === 'playing' && `${t.table.playersTurn}`}
+            {gameState.phase === 'dealer-turn' && `${t.table.dealerTurn}`}
+            {gameState.phase === 'results' && `${t.table.results}`}
           </span>
         </div>
 
@@ -305,7 +305,7 @@ export default function GameTable({
       {/* Version Tag */}
       <div className="fixed bottom-1 left-2 z-50 pointer-events-none">
         <span className="text-[10px] font-bold tracking-widest text-white/20 uppercase">
-          v1.1.0
+          v1.1.1
         </span>
       </div>
     </div>

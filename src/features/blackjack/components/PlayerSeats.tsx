@@ -102,7 +102,7 @@ export default function PlayerSeats({ gameState, myId, seatLift, currentBet }: P
                 <span className="mt-0.5 text-[10px] font-bold text-amber-300/80">{t.seats.joiningNextRound}</span>
               ) : gameState.phase === 'betting' && (
                 <span className={`text-[10px] mt-0.5 font-bold ${player.ready ? 'text-green-400/80' : 'text-yellow-400/70 animate-pulse'}`}>
-                  {player.ready ? `✓ ${t.seats.ready}` : `⏳ ${t.seats.betting}`}
+                  {player.ready ? `✓ ${t.seats.ready}` : `${t.seats.betting}`}
                 </span>
               )}
             </div>
