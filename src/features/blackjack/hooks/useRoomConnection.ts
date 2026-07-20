@@ -262,19 +262,23 @@ export function useRoomConnection(): UseRoomConnectionReturn {
           setGameState((prev) => {
             if (prev.players[peerId]) return prev;
             const joiningMidRound = prev.tableOpen && prev.phase !== 'betting';
-            const newState = {
+            return {
               ...prev,
               players: {
                 ...prev.players,
                 [peerId]: createPlayerState(peerId, name, pBalance, joiningMidRound),
               },
             };
-            if (isHostRef.current) {
-              const stateToSync = { ...newState, deck: [] };
-              p2pRef.current?.send({ type: 'game-state-sync', payload: stateToSync, senderId: 'host' });
-              p2pRef.current?.sendTo(peerId, { type: 'room-settings-sync', payload: newState.settings, senderId: 'host' });
-            }
-            return newState;
+          });
+          // The full state broadcast (including this joiner's first sync) is
+          // handled automatically by the game-state-sync effect once the
+          // state above commits. Only the targeted room-settings-sync needs
+          // to be sent explicitly here, since that message type is never
+          // part of the regular broadcast.
+          p2pRef.current?.sendTo(peerId, {
+            type: 'room-settings-sync',
+            payload: gameStateRef.current.settings,
+            senderId: 'host',
           });
           showToast(
             gameStateRef.current.tableOpen && gameStateRef.current.phase !== 'betting'
@@ -430,17 +434,16 @@ export function useRoomConnection(): UseRoomConnectionReturn {
         // A peer's connection dropped (closed tab, crash, lost network) without
         // ever sending a graceful `player-leave`. Remove them ourselves —
         // otherwise they sit at the table forever as a ghost seat nobody can
-        // act for, blocking the round.
+        // act for, blocking the round. The state broadcast is handled
+        // automatically by the game-state-sync effect once this commits.
+        const leaving = gameStateRef.current.players[peerId];
         setGameState((prev) => {
-          const leaving = prev.players[peerId];
-          if (!leaving) return prev;
+          if (!prev.players[peerId]) return prev;
           const newPlayers = { ...prev.players };
           delete newPlayers[peerId];
-          const newState = { ...prev, players: newPlayers };
-          p2pRef.current?.send({ type: 'game-state-sync', payload: { ...newState, deck: [] }, senderId: 'host' });
-          showToast(`${leaving.name} disconnected`);
-          return newState;
+          return { ...prev, players: newPlayers };
         });
+        if (leaving) showToast(`${leaving.name} disconnected`);
         return;
       }
 
