@@ -9,7 +9,7 @@ const HMAC_KEY = 'bj_wallet_sig';
 const SECRET_PARTS = ['Bl4ck', 'J4ck', '_S3cr3t_', 'K3y_2024!'];
 const getSecret = () => SECRET_PARTS.join('');
 
-const INITIAL_BALANCE = 1000;
+export const INITIAL_BALANCE = 1000;
 const RESET_BALANCE = 100;
 
 async function hmacSign(data: string): Promise<string> {

@@ -22,8 +22,10 @@ export default function InsurancePrompt({
   if (gameState.phase !== 'playing') return null;
   if (!gameState.settings.insuranceEnabled) return null;
   if (!dealerShowsAce(gameState)) return null;
-  if (!myPlayer || myPlayer.hands.length === 0) return null;
+  // Match the engine rule: insurance only on the un-acted initial hand.
+  if (!myPlayer || myPlayer.hands.length !== 1) return null;
   const firstHand = myPlayer.hands[0];
+  if (firstHand.cards.length !== 2) return null;
   if (firstHand.stood || firstHand.busted || firstHand.surrendered || firstHand.blackjack) return null;
   if (firstHand.insuranceBet > 0) return null;
   if (insurancePromptDismissed) return null;

@@ -305,7 +305,7 @@ export default function GameTable({
       {/* Version Tag */}
       <div className="fixed bottom-1 left-2 z-50 pointer-events-none">
         <span className="text-[10px] font-bold tracking-widest text-white/20 uppercase">
-          v1.0.0
+          v1.1.0
         </span>
       </div>
     </div>

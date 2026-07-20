@@ -7,10 +7,10 @@ This document explains the blackjack rules and math implemented by the current c
 | Category | Current implementation |
 | --- | --- |
 | Shoe size | 6 decks |
-| Shuffle method | Fisher-Yates using `Math.random()` |
+| Shuffle method | Fisher-Yates using `crypto.getRandomValues` (rejection-sampled, unbiased) |
 | Blackjack | 2-card `21`, pays `3:2` |
 | Dealer rule | Stands on all `17`s, including soft `17` |
-| Insurance | Optional room rule, off by default, offered only when dealer's upcard is Ace |
+| Insurance | Optional room rule, off by default, offered only when dealer's upcard is Ace and only on the un-acted 2-card initial hand |
 | Insurance payout | `2:1` winnings plus stake returned |
 | Surrender | Optional room rule, off by default, half-bet returned immediately |
 | Split | Enabled by default |
@@ -64,8 +64,9 @@ The wallet logic is intentionally arcade-like rather than casino-realistic:
 - first-time bankroll starts at `$1000`
 - if a bankroll is corrupted or tampered with, it is reset to `$100`
 - if a player reaches `0`, the next sync/new round also restores them to `$100`
+- the maximum joining bankroll allowed by the host is capped at `$1,000,000` to prevent oversized values
 
-This avoids hard dead-ends where a player can no longer play.
+This avoids hard dead-ends where a player can no longer play, while keeping numbers bounded.
 
 ## 4. Odds And Probabilities
 
@@ -158,22 +159,21 @@ Each card is stored as:
 
 Important implementation note:
 
-- randomness comes from `Math.random()`
-- that is fine for casual browser play
-- it is not cryptographically secure or independently auditable
+- randomness comes from `crypto.getRandomValues` with rejection sampling (no modulo bias)
+- this is cryptographically strong, but the shuffle is still not independently auditable (no commit-reveal scheme)
 
 ### Shoe replacement
 
-Every draw goes through `dealCard()`.
+The shoe is primarily replaced at the round boundary: `dealInitialCards()` swaps in a fresh shuffled 6-deck shoe before dealing whenever fewer than `RESHUFFLE_THRESHOLD` (`60`) cards remain.
 
-If the remaining deck is below `20` cards, `dealCard()` immediately replaces it with a fresh shuffled 6-deck shoe before drawing.
+Every draw still goes through `dealCard()`, which keeps a last-resort emergency refill: if the remaining deck is below `20` cards mid-round, it replaces the shoe before drawing. With the round-boundary swap in place this fallback is practically unreachable.
 
 That means:
 
 - there is no discard tray model
 - there is no cut-card penetration model
 - long-session card-counting assumptions do not map cleanly to this implementation
-- the shuffle can happen in the middle of a round if the remaining shoe drops below `20`
+- only the (practically unreachable) emergency mid-round refill could briefly duplicate cards already on the table
 
 ## 6. Hand Valuation Algorithm
 
@@ -283,7 +283,7 @@ Important details:
 - requires insurance to be enabled
 - requires the phase to be `playing`
 - requires the dealer upcard to be Ace
-- applies only to the first hand
+- applies only to the un-acted initial hand: exactly 2 cards, no split yet (standard casino timing)
 - deducts `floor(bet / 2)` immediately
 
 There is also a `playerDeclineInsurance()` helper, but it is a no-op on state. The UI mainly uses local dismissal state for declining the prompt.
@@ -388,14 +388,13 @@ After settlement:
 
 These are the main differences between the current code and a stricter physical or regulated online blackjack table:
 
-- There is no dedicated peek/insurance-resolution subphase before normal player actions begin.
-- The host can see the hole card locally and therefore knows whether the dealer has blackjack as soon as the initial deal is generated, but it does not commit that knowledge to canonical `GameState` until the hole card flips, so peers cannot infer it from `game-state-sync`.
-- Because `playing` starts immediately after the initial deal, players may briefly be able to act before a dealer-blackjack reveal animation completes.
+- There is no dedicated peek/insurance-resolution subphase before normal player actions begin. Instead, when the host detects a dealer blackjack it rejects every action except `insure`/`decline-insurance` during the short pre-reveal window, so nobody can hit, double, or split into an already-decided round.
+- The host can see the hole card locally and therefore knows whether the dealer has blackjack as soon as the initial deal is generated, but it does not commit that knowledge to canonical `GameState` until the hole card flips. Broadcasts additionally mask the hole card's rank and suit (`sanitizeStateForBroadcast`), so peers cannot read it from `game-state-sync` payloads either.
 - The `playing` phase is not serialized by seat order; players can act based on whether their own active hand is actionable.
 - Split aces can be hit, doubled, and otherwise played like normal split hands.
 - Ten-valued cards can be split across rank boundaries, such as `K + Q`.
-- The shoe is replaced whenever fewer than `20` cards remain instead of using a realistic cut-card/discard flow.
-- Randomness is browser `Math.random`, not a certified casino RNG.
+- The shoe is replaced at the round boundary when fewer than `60` cards remain instead of using a realistic cut-card/discard flow.
+- Randomness comes from the browser CSPRNG (`crypto.getRandomValues`), which is strong but not a certified/audited casino RNG.
 
 ## 13. Practical Reading Of The Game's Math
 

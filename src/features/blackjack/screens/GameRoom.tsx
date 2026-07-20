@@ -1,15 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useSyncExternalStore } from 'react';
-import {
-  playerHit,
-  playerStand,
-  playerDoubleDown,
-  playerSurrender,
-  playerSplit,
-  playerInsure,
-  startNewRound,
-} from '@/features/blackjack/lib/blackjack';
+import { startNewRound } from '@/features/blackjack/lib/blackjack';
 import { setBalance } from '@/features/blackjack/lib/wallet';
 import { sounds } from '@/features/blackjack/lib/sounds';
 import type { AutoplayConfig } from '@/features/blackjack/types/autoplay';
@@ -93,7 +85,6 @@ export default function GameRoom() {
     setRoomSettings,
     copied,
     gameStateRef,
-    p2pRef,
     isHostRef,
     handleCreateRoom,
     handleJoinRoom,
@@ -104,6 +95,8 @@ export default function GameRoom() {
     handleSwitchToSpectator: switchToSpectator,
     handleJoinFromSpectator,
     syncGameState,
+    sendAction,
+    sendBet,
   } = useRoomConnection();
   const { t } = useLanguage();
   const isMobile = useIsMobile();
@@ -148,145 +141,67 @@ export default function GameRoom() {
   });
 
   // ==================== Player Actions (host-authoritative) ====================
-  // Host: apply action directly and broadcast
-  // Non-host: send intent to host who applies and broadcasts
+  // All actions route through `sendAction`: the host applies them via the
+  // authoritative reducer path, peers send intents to the host. Peers keep
+  // their existing optimistic local-balance updates; the host's balance is
+  // persisted from authoritative state inside useRoomConnection.
 
   const handleHit = useCallback(() => {
     sounds.cardDeal();
-    if (isHostRef.current) {
-      setGameState((prev) => {
-        const newState = playerHit(prev, myId);
-        p2pRef.current?.send({ type: 'game-state-sync', payload: { ...newState, deck: [] }, senderId: 'host' });
-        return newState;
-      });
-    } else {
-      p2pRef.current?.send({
-        type: 'player-action',
-        payload: { playerId: myId, action: 'hit' },
-        senderId: myId,
-      });
-    }
-  }, [isHostRef, myId, p2pRef, setGameState]);
+    sendAction('hit');
+  }, [sendAction]);
 
   const handleStand = useCallback(() => {
     sounds.stand();
-    if (isHostRef.current) {
-      setGameState((prev) => {
-        const newState = playerStand(prev, myId);
-        p2pRef.current?.send({ type: 'game-state-sync', payload: { ...newState, deck: [] }, senderId: 'host' });
-        return newState;
-      });
-    } else {
-      p2pRef.current?.send({
-        type: 'player-action',
-        payload: { playerId: myId, action: 'stand' },
-        senderId: myId,
-      });
-    }
-  }, [isHostRef, myId, p2pRef, setGameState]);
+    sendAction('stand');
+  }, [sendAction]);
 
   const handleDouble = useCallback(() => {
     sounds.cardDeal();
-    if (isHostRef.current) {
-      setGameState((prev) => {
-        const newState = playerDoubleDown(prev, myId);
-        const me = newState.players[myId];
-        if (me) {
-          persistLocalBalance(me.balance);
-        }
-        p2pRef.current?.send({ type: 'game-state-sync', payload: { ...newState, deck: [] }, senderId: 'host' });
-        return newState;
-      });
-    } else {
+    if (!isHostRef.current) {
       const latestPlayer = gameStateRef.current.players[myId];
       const activeHand = latestPlayer?.hands[latestPlayer.activeHandIndex ?? 0];
       if (activeHand) {
         persistLocalBalance(balance - activeHand.bet);
       }
-      p2pRef.current?.send({
-        type: 'player-action',
-        payload: { playerId: myId, action: 'double' },
-        senderId: myId,
-      });
     }
-  }, [balance, gameStateRef, isHostRef, myId, p2pRef, persistLocalBalance, setGameState]);
+    sendAction('double');
+  }, [balance, gameStateRef, isHostRef, myId, persistLocalBalance, sendAction]);
 
   const handleSurrender = useCallback(() => {
     sounds.stand();
-    if (isHostRef.current) {
-      setGameState((prev) => {
-        const newState = playerSurrender(prev, myId);
-        const me = newState.players[myId];
-        if (me) {
-          persistLocalBalance(me.balance);
-        }
-        p2pRef.current?.send({ type: 'game-state-sync', payload: { ...newState, deck: [] }, senderId: 'host' });
-        return newState;
-      });
-    } else {
+    if (!isHostRef.current) {
       const latestPlayer = gameStateRef.current.players[myId];
       const activeHand = latestPlayer?.hands[latestPlayer.activeHandIndex ?? 0];
       if (activeHand) {
         persistLocalBalance(balance + Math.floor(activeHand.bet / 2));
       }
-      p2pRef.current?.send({
-        type: 'player-action',
-        payload: { playerId: myId, action: 'surrender' },
-        senderId: myId,
-      });
     }
-  }, [balance, gameStateRef, isHostRef, myId, p2pRef, persistLocalBalance, setGameState]);
+    sendAction('surrender');
+  }, [balance, gameStateRef, isHostRef, myId, persistLocalBalance, sendAction]);
 
   const handleSplit = useCallback(() => {
     sounds.cardDeal();
-    if (isHostRef.current) {
-      setGameState((prev) => {
-        const newState = playerSplit(prev, myId);
-        const me = newState.players[myId];
-        if (me) {
-          persistLocalBalance(me.balance);
-        }
-        p2pRef.current?.send({ type: 'game-state-sync', payload: { ...newState, deck: [] }, senderId: 'host' });
-        return newState;
-      });
-    } else {
+    if (!isHostRef.current) {
       const latestPlayer = gameStateRef.current.players[myId];
       const activeHand = latestPlayer?.hands[latestPlayer.activeHandIndex ?? 0];
       if (activeHand) {
         persistLocalBalance(balance - activeHand.bet);
       }
-      p2pRef.current?.send({
-        type: 'player-action',
-        payload: { playerId: myId, action: 'split' },
-        senderId: myId,
-      });
     }
-  }, [balance, gameStateRef, isHostRef, myId, p2pRef, persistLocalBalance, setGameState]);
+    sendAction('split');
+  }, [balance, gameStateRef, isHostRef, myId, persistLocalBalance, sendAction]);
 
   const handleInsure = useCallback(() => {
-    if (isHostRef.current) {
-      setGameState((prev) => {
-        const newState = playerInsure(prev, myId);
-        const me = newState.players[myId];
-        if (me) {
-          persistLocalBalance(me.balance);
-        }
-        p2pRef.current?.send({ type: 'game-state-sync', payload: { ...newState, deck: [] }, senderId: 'host' });
-        return newState;
-      });
-    } else {
+    if (!isHostRef.current) {
       const firstHand = gameStateRef.current.players[myId]?.hands[0];
       if (firstHand) {
         persistLocalBalance(balance - Math.floor(firstHand.bet / 2));
       }
-      p2pRef.current?.send({
-        type: 'player-action',
-        payload: { playerId: myId, action: 'insure' },
-        senderId: myId,
-      });
     }
+    sendAction('insure');
     setDismissedInsuranceRound(gameStateRef.current.roundNumber);
-  }, [balance, gameStateRef, isHostRef, myId, p2pRef, persistLocalBalance, setGameState]);
+  }, [balance, gameStateRef, isHostRef, myId, persistLocalBalance, sendAction]);
 
   const handleDeclineInsurance = useCallback(() => {
     setDismissedInsuranceRound(gameStateRef.current.roundNumber);
@@ -295,110 +210,38 @@ export default function GameRoom() {
   const handleNewRound = useCallback(() => {
     if (!isHostRef.current || gameStateRef.current.phase !== 'results') return;
     sounds.newRound();
-    setGameState((prev) => {
-      const newState = startNewRound(prev);
-      if (p2pRef.current) {
-        p2pRef.current.send({ type: 'game-state-sync', payload: { ...newState, deck: [] }, senderId: 'host' });
-      }
-      return newState;
-    });
+    setGameState((prev) => (prev.phase === 'results' ? startNewRound(prev) : prev));
     setCurrentBet(0);
     setDismissedInsuranceRound(null);
-  }, [gameStateRef, isHostRef, p2pRef, setGameState]);
+  }, [gameStateRef, isHostRef, setGameState]);
 
   // ==================== Dealer Progression (host only) ====================
   useDealerProgression({
     gameState,
     gameStateRef,
     isHostRef,
-    myId,
-    setLocalBalance,
     syncGameState,
     onResultsTimeout: handleNewRound,
   });
 
   // ==================== Betting ====================
 
-  const handleConfirmBet = useCallback(() => {
-    if (currentBet <= 0 || currentBet > balance) return;
-    if (gameStateRef.current.players[myId]?.ready) return;
-
-    if (isHostRef.current) {
-      // Host applies bet directly
-      const newBalance = balance - currentBet;
-      persistLocalBalance(newBalance);
-      sounds.bet();
-      setGameState((prev) => {
-        const player = prev.players[myId];
-        if (!player) return prev;
-        const newState = {
-          ...prev,
-          tableMessage: undefined,
-          players: {
-            ...prev.players,
-            [myId]: {
-              ...player,
-              hands: [{ ...player.hands[0], bet: currentBet }],
-              balance: newBalance,
-              ready: true,
-            },
-          },
-        };
-        p2pRef.current?.send({ type: 'game-state-sync', payload: { ...newState, deck: [] }, senderId: 'host' });
-        return newState;
-      });
-    } else {
-      // Non-host sends bet intent to host
-      persistLocalBalance(balance - currentBet);
-      sounds.bet();
-      p2pRef.current?.send({
-        type: 'player-bet',
-        payload: { playerId: myId, bet: currentBet },
-        senderId: myId,
-      });
-    }
-  }, [balance, currentBet, gameStateRef, isHostRef, myId, p2pRef, persistLocalBalance, setGameState]);
-
-  // Autoplay version: confirm bet with specific amount
   const handleConfirmBetWith = useCallback((bet: number) => {
     if (bet <= 0 || bet > balance) return;
     if (gameStateRef.current.players[myId]?.ready) return;
 
-    if (isHostRef.current) {
-      const newBal = balance - bet;
-      persistLocalBalance(newBal);
-      setCurrentBet(bet);
-      sounds.bet();
-      setGameState((prev) => {
-        const player = prev.players[myId];
-        if (!player || player.ready) return prev;
-        const newState = {
-          ...prev,
-          tableMessage: undefined,
-          players: {
-            ...prev.players,
-            [myId]: {
-              ...player,
-              hands: [{ ...player.hands[0], bet }],
-              balance: newBal,
-              ready: true,
-            },
-          },
-        };
-        p2pRef.current?.send({ type: 'game-state-sync', payload: { ...newState, deck: [] }, senderId: 'host' });
-        return newState;
-      });
-    } else {
-      sounds.bet();
-      setCurrentBet(bet);
+    sounds.bet();
+    setCurrentBet(bet);
+    if (!isHostRef.current) {
+      // Optimistic local balance; the host's next sync is authoritative.
       persistLocalBalance(balance - bet);
-      p2pRef.current?.send({
-        type: 'player-bet',
-        payload: { playerId: myId, bet },
-        senderId: myId,
-      });
     }
-  }, [balance, gameStateRef, isHostRef, myId, p2pRef, persistLocalBalance, setGameState]);
+    sendBet(bet);
+  }, [balance, gameStateRef, isHostRef, myId, persistLocalBalance, sendBet]);
+
+  const handleConfirmBet = useCallback(() => {
+    handleConfirmBetWith(currentBet);
+  }, [currentBet, handleConfirmBetWith]);
 
   const handleAllIn = useCallback(() => setCurrentBet(balance), [balance]);
 

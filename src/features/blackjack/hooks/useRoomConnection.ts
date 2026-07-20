@@ -15,7 +15,10 @@ import {
   playerSplit,
   playerInsure,
   startNewRound,
+  sanitizeStateForBroadcast,
+  isDealerBlackjackPending,
 } from '@/features/blackjack/lib/blackjack';
+import { isValidBet, sanitizeJoinBalance, sanitizePlayerName } from '@/features/blackjack/lib/validation';
 import { P2PConnection, GameMessage, PlayerActionKind } from '@/features/blackjack/lib/p2p';
 import { getBalance, setBalance } from '@/features/blackjack/lib/wallet';
 
@@ -170,59 +173,75 @@ export function useRoomConnection(): UseRoomConnectionReturn {
     getBalance().then(setLocalBalance);
   }, []);
 
-  // Sync game state to peers (host only)
+  // Host-authoritative broadcast: whenever canonical state commits, replicate
+  // the sanitized version (no deck, hole card masked) to all peers. Keeping the
+  // send OUT of setState updaters keeps the updaters pure — React may invoke an
+  // updater more than once (StrictMode, interrupted renders), and a send inside
+  // one can broadcast a transient state that never actually commits.
+  useEffect(() => {
+    if (!isHostRef.current || !p2pRef.current) return;
+    p2pRef.current.send({
+      type: 'game-state-sync',
+      payload: sanitizeStateForBroadcast(gameState),
+      senderId: 'host',
+    });
+  }, [gameState]);
+
+  // Host wallet persistence: mirror of the peer-side `game-state-sync` handler.
+  // Whenever authoritative state changes the host's own balance, persist it.
+  useEffect(() => {
+    if (!isHostRef.current) return;
+    const me = myId ? gameState.players[myId] : undefined;
+    if (!me) return;
+    const nextBalance = gameState.phase === 'results' && me.balance <= 0 ? 100 : me.balance;
+    if (lastSyncedBalanceRef.current !== nextBalance) {
+      lastSyncedBalanceRef.current = nextBalance;
+      setLocalBalance(nextBalance);
+      void setBalance(nextBalance);
+    }
+  }, [gameState, myId]);
+
+  // Set canonical state on the host; replication happens in the effect above.
   const syncGameState = useCallback((state: GameState) => {
     setGameState(state);
-    if (p2pRef.current && isHostRef.current) {
-      // Strip deck from broadcasts to prevent card data leaking to non-host peers
-      const stateToSync = { ...state, deck: [] };
-      p2pRef.current.send({
-        type: 'game-state-sync',
-        payload: stateToSync,
-        senderId: 'host',
-      });
-    }
   }, []);
 
   // Host-authoritative: apply a player action on the host side
   const applyActionOnHost = useCallback((playerId: string, action: PlayerActionKind) => {
     setGameState((prev) => {
-      let newState: GameState;
+      // While the dealer holds a still-hidden blackjack the round is already
+      // decided; only insurance decisions are accepted until the reveal.
+      if (
+        prev.phase === 'playing' &&
+        action !== 'insure' &&
+        action !== 'decline-insurance' &&
+        isDealerBlackjackPending(prev)
+      ) {
+        return prev;
+      }
+      // Invalid actions are rejected silently (state identity unchanged → no
+      // broadcast): a peer's optimistic balance is walked back by the next
+      // authoritative sync, and invalid message spam cannot amplify into
+      // broadcasts or timer reschedules.
       switch (action) {
         case 'hit':
-          newState = playerHit(prev, playerId);
-          break;
+          return playerHit(prev, playerId);
         case 'stand':
-          newState = playerStand(prev, playerId);
-          break;
+          return playerStand(prev, playerId);
         case 'double':
-          newState = playerDoubleDown(prev, playerId);
-          break;
+          return playerDoubleDown(prev, playerId);
         case 'split':
-          newState = playerSplit(prev, playerId);
-          break;
+          return playerSplit(prev, playerId);
         case 'surrender':
-          newState = playerSurrender(prev, playerId);
-          break;
+          return playerSurrender(prev, playerId);
         case 'insure':
-          newState = playerInsure(prev, playerId);
-          break;
+          return playerInsure(prev, playerId);
         case 'decline-insurance':
           // No-op on game state, just dismiss prompt on client
-          newState = prev;
-          break;
+          return prev;
         default:
-          newState = prev;
+          return prev;
       }
-      // Broadcast the canonical state (strip deck to prevent card leak)
-      if (p2pRef.current) {
-        p2pRef.current.send({
-          type: 'game-state-sync',
-          payload: { ...newState, deck: [] },
-          senderId: 'host',
-        });
-      }
-      return newState;
     });
   }, []);
 
@@ -231,11 +250,17 @@ export function useRoomConnection(): UseRoomConnectionReturn {
     (msg: GameMessage) => {
       switch (msg.type) {
         case 'player-join': {
-            const { name, balance: pBalance } = msg.payload as {
-              name: string; balance: number; peerId: string;
-          };
-            const peerId = msg.senderId;
+          if (!isHostRef.current) break; // Only the host seats players
+          const peerId = msg.senderId;
+          const payload = msg.payload as { name?: unknown; balance?: unknown };
+          const name = sanitizePlayerName(payload?.name);
+          const pBalance = sanitizeJoinBalance(payload?.balance);
+          if (!name) break; // Malformed join — ignore
+          // A re-sent join must not reset a live seat (it would refund a bet
+          // the host already applied and restore a client-declared balance).
+          if (gameStateRef.current.players[peerId]) break;
           setGameState((prev) => {
+            if (prev.players[peerId]) return prev;
             const joiningMidRound = prev.tableOpen && prev.phase !== 'betting';
             const newState = {
               ...prev,
@@ -245,14 +270,9 @@ export function useRoomConnection(): UseRoomConnectionReturn {
               },
             };
             if (isHostRef.current) {
-              // BUG-FIX: Use sendTo for targeted initial sync instead of
-              // broadcasting to ALL peers. Also strip the deck from the synced
-              // state to avoid leaking card data to non-host clients.
-              setTimeout(() => {
-                const stateToSync = { ...gameStateRef.current, deck: [] };
-                p2pRef.current?.send({ type: 'game-state-sync', payload: stateToSync, senderId: 'host' });
-                p2pRef.current?.sendTo(peerId, { type: 'room-settings-sync', payload: newState.settings, senderId: 'host' });
-              }, 500);
+              const stateToSync = { ...newState, deck: [] };
+              p2pRef.current?.send({ type: 'game-state-sync', payload: stateToSync, senderId: 'host' });
+              p2pRef.current?.sendTo(peerId, { type: 'room-settings-sync', payload: newState.settings, senderId: 'host' });
             }
             return newState;
           });
@@ -264,15 +284,14 @@ export function useRoomConnection(): UseRoomConnectionReturn {
           break;
         }
         case 'spectator-join': {
-          const { name } = msg.payload as { name: string };
-          showToast(`${name} is spectating`);
-          // BUG-FIX: Send targeted initial game state to the spectator so they
-          // see the current table. We strip the deck to avoid leaking card info.
+          const name = sanitizePlayerName((msg.payload as { name?: unknown })?.name);
+          if (name) showToast(`${name} is spectating`);
+          // Send targeted initial game state to the spectator so they see the
+          // current table (sanitized: no deck, hole card masked).
           if (isHostRef.current && p2pRef.current) {
-            const stateForSpectator = { ...gameStateRef.current, deck: [] };
             p2pRef.current.sendTo(msg.senderId, {
               type: 'game-state-sync',
-              payload: stateForSpectator,
+              payload: sanitizeStateForBroadcast(gameStateRef.current),
               senderId: 'host',
             });
           }
@@ -280,20 +299,20 @@ export function useRoomConnection(): UseRoomConnectionReturn {
         }
         case 'player-bet': {
           if (!isHostRef.current) break; // Only host processes bets
-          const { playerId, bet } = msg.payload as { playerId: string; bet: number };
+          const { playerId, bet } = msg.payload as { playerId?: unknown; bet?: unknown };
+          if (playerId !== msg.senderId) break;
           setGameState((prev) => {
-            if (playerId !== msg.senderId) return prev;
             if (prev.phase !== 'betting') return prev;
-            const player = prev.players[playerId];
+            const player = prev.players[msg.senderId];
             if (!player) return prev;
             if (player.ready) return prev;
-            if (bet <= 0 || bet > player.balance) return prev; // Validate bet
-            const newState = {
+            if (!isValidBet(bet, player.balance)) return prev;
+            return {
               ...prev,
               tableMessage: undefined,
               players: {
                 ...prev.players,
-                [playerId]: {
+                [msg.senderId]: {
                   ...player,
                   hands: [{ ...player.hands[0], bet }],
                   balance: player.balance - bet,
@@ -301,9 +320,6 @@ export function useRoomConnection(): UseRoomConnectionReturn {
                 },
               },
             };
-            // Broadcast canonical state (deck stripped for security)
-            p2pRef.current?.send({ type: 'game-state-sync', payload: { ...newState, deck: [] }, senderId: 'host' });
-            return newState;
           });
           break;
         }
@@ -331,11 +347,18 @@ export function useRoomConnection(): UseRoomConnectionReturn {
             const me = currentMyId ? nextState.players[currentMyId] : undefined;
             if (me) {
               const nextBalance = me.balance <= 0 ? 100 : me.balance;
+              // Always reconcile the displayed balance with the canonical value,
+              // even if it matches what we last persisted — an optimistic local
+              // update (e.g. a double/split the host ends up rejecting) can drift
+              // the UI away from that same canonical number, and the drift would
+              // otherwise never get corrected. Only gate the (async, signed)
+              // localStorage write on an actual change, since that runs on every
+              // sync otherwise.
               if (lastSyncedBalanceRef.current !== nextBalance) {
                 lastSyncedBalanceRef.current = nextBalance;
-                setLocalBalance(nextBalance);
                 void setBalance(nextBalance);
               }
+              setLocalBalance(nextBalance);
               // BUG-FIX: Only flip `isSpectator` to false when the join was
               // explicitly requested via `handleJoinFromSpectator`. Previously,
               // this line ran on EVERY sync, so a spectator whose peerId
@@ -366,23 +389,31 @@ export function useRoomConnection(): UseRoomConnectionReturn {
           break;
         }
         case 'player-leave': {
-          const { playerId, name } = msg.payload as { playerId: string; name: string };
+          // A peer may only remove itself; the seat name comes from our own
+          // state, never from the untrusted payload.
+          const { playerId } = msg.payload as { playerId?: unknown };
+          if (playerId !== msg.senderId) break;
+          const name = gameStateRef.current.players[msg.senderId]?.name;
           setGameState((prev) => {
+            if (!prev.players[msg.senderId]) return prev;
             const newPlayers = { ...prev.players };
-            delete newPlayers[playerId];
+            delete newPlayers[msg.senderId];
             return { ...prev, players: newPlayers };
           });
-          showToast(`${name} left`);
+          if (name) showToast(`${name} left`);
           break;
         }
         case 'player-spectate': {
-          const { playerId, name } = msg.payload as { playerId: string; name: string };
+          const { playerId } = msg.payload as { playerId?: unknown };
+          if (playerId !== msg.senderId) break;
+          const name = gameStateRef.current.players[msg.senderId]?.name;
           setGameState((prev) => {
+            if (!prev.players[msg.senderId]) return prev;
             const newPlayers = { ...prev.players };
-            delete newPlayers[playerId];
+            delete newPlayers[msg.senderId];
             return { ...prev, players: newPlayers };
           });
-          showToast(`${name} is now spectating`);
+          if (name) showToast(`${name} is now spectating`);
           break;
         }
       }
@@ -392,13 +423,32 @@ export function useRoomConnection(): UseRoomConnectionReturn {
 
   const attachPeerListeners = useCallback((p2p: P2PConnection) => {
     p2p.onMessage(handleMessage);
-    p2p.onPeerDisconnect(() => {
+    p2p.onPeerDisconnect((peerId) => {
       if (p2pRef.current !== p2p) return;
-      if (!isHostRef.current && p2p.connectedPeers.length === 0) {
+
+      if (isHostRef.current) {
+        // A peer's connection dropped (closed tab, crash, lost network) without
+        // ever sending a graceful `player-leave`. Remove them ourselves —
+        // otherwise they sit at the table forever as a ghost seat nobody can
+        // act for, blocking the round.
+        setGameState((prev) => {
+          const leaving = prev.players[peerId];
+          if (!leaving) return prev;
+          const newPlayers = { ...prev.players };
+          delete newPlayers[peerId];
+          const newState = { ...prev, players: newPlayers };
+          p2pRef.current?.send({ type: 'game-state-sync', payload: { ...newState, deck: [] }, senderId: 'host' });
+          showToast(`${leaving.name} disconnected`);
+          return newState;
+        });
+        return;
+      }
+
+      if (p2p.connectedPeers.length === 0) {
         resetRoomState('The leader left. The room has been closed.');
       }
     });
-  }, [handleMessage, resetRoomState]);
+  }, [handleMessage, resetRoomState, showToast]);
 
   // Send an action intent (non-host sends to host; host applies directly)
   const sendAction = useCallback((action: PlayerActionKind) => {
@@ -417,10 +467,12 @@ export function useRoomConnection(): UseRoomConnectionReturn {
   const sendBet = useCallback((bet: number) => {
     if (isHostRef.current) {
       setGameState((prev) => {
+        if (prev.phase !== 'betting') return prev;
         const player = prev.players[myId];
-        if (!player || bet <= 0 || bet > player.balance) return prev;
+        if (!player || player.ready) return prev;
+        if (!isValidBet(bet, player.balance)) return prev;
 
-        const newState = {
+        return {
           ...prev,
           tableMessage: undefined,
           players: {
@@ -433,9 +485,6 @@ export function useRoomConnection(): UseRoomConnectionReturn {
             },
           },
         };
-
-        p2pRef.current?.send({ type: 'game-state-sync', payload: { ...newState, deck: [] }, senderId: 'host' });
-        return newState;
       });
       return;
     }
@@ -545,17 +594,7 @@ export function useRoomConnection(): UseRoomConnectionReturn {
   const handleStartGame = useCallback(() => {
     if (!isHostRef.current) return;
 
-    setGameState((prev) => {
-      if (prev.tableOpen) return prev;
-
-      const newState = {
-        ...prev,
-        tableOpen: true,
-      };
-
-      p2pRef.current?.send({ type: 'game-state-sync', payload: { ...newState, deck: [] }, senderId: 'host' });
-      return newState;
-    });
+    setGameState((prev) => (prev.tableOpen ? prev : { ...prev, tableOpen: true }));
 
     setScreen('game');
     setConnectionStatus('');
@@ -572,17 +611,8 @@ export function useRoomConnection(): UseRoomConnectionReturn {
       p2pRef.current.send({ type: 'player-leave', payload: { playerId: myId, name: playerName }, senderId: myId });
     }
 
-    // If host is leaving, also clean themselves from game state
-    if (isHostRef.current) {
-      setGameState((prev) => {
-        const newPlayers = { ...prev.players };
-        delete newPlayers[myId];
-        const newState = { ...prev, players: newPlayers };
-        p2pRef.current?.send({ type: 'game-state-sync', payload: { ...newState, deck: [] }, senderId: 'host' });
-        return newState;
-      });
-    }
-
+    // The host leaving destroys the room; peers detect the transport close
+    // and reset themselves, so no final state broadcast is needed.
     resetRoomState();
   }, [myId, playerName, resetRoomState]);
 
@@ -593,9 +623,7 @@ export function useRoomConnection(): UseRoomConnectionReturn {
       setGameState((prev) => {
         const newPlayers = { ...prev.players };
         delete newPlayers[myId];
-        const newState = { ...prev, players: newPlayers };
-        p2pRef.current?.send({ type: 'game-state-sync', payload: { ...newState, deck: [] }, senderId: 'host' });
-        return newState;
+        return { ...prev, players: newPlayers };
       });
     } else if (p2pRef.current) {
       p2pRef.current.send({ type: 'player-spectate', payload: { playerId: myId, name: playerName }, senderId: myId });
@@ -619,18 +647,13 @@ export function useRoomConnection(): UseRoomConnectionReturn {
     const waitingForNextRound = gameStateRef.current.tableOpen && gameStateRef.current.phase !== 'betting';
 
     if (isHostRef.current) {
-      setGameState((prev) => {
-        const newState = {
-          ...prev,
-          players: {
-            ...prev.players,
-            [myId]: createPlayerState(myId, playerName, bal, waitingForNextRound),
-          },
-        };
-
-        p2pRef.current?.send({ type: 'game-state-sync', payload: { ...newState, deck: [] }, senderId: 'host' });
-        return newState;
-      });
+      setGameState((prev) => ({
+        ...prev,
+        players: {
+          ...prev.players,
+          [myId]: createPlayerState(myId, playerName, bal, waitingForNextRound),
+        },
+      }));
       // Host has authoritative state — safe to flip immediately
       setIsSpectator(false);
     } else if (p2pRef.current) {

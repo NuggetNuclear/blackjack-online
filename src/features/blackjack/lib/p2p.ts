@@ -3,6 +3,38 @@
 // ========================
 
 import Peer, { DataConnection } from 'peerjs';
+import { ROOM_CODE_PATTERN } from '@/features/blackjack/lib/validation';
+
+const ROOM_CODE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+const ROOM_CODE_LENGTH = 6;
+
+function generateRoomCode(): string {
+  // Math.random().toString(36) can occasionally yield fewer than 6 characters;
+  // draw from the CSPRNG and always produce a full-length code.
+  const bytes = new Uint8Array(ROOM_CODE_LENGTH);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => ROOM_CODE_ALPHABET[b % ROOM_CODE_ALPHABET.length]).join('');
+}
+
+type PeerOptions = NonNullable<ConstructorParameters<typeof Peer>[1]>;
+
+/** PeerJS server options. Defaults to the public PeerJS cloud; a self-hosted
+ *  signaling server can be configured with NEXT_PUBLIC_PEERJS_HOST (plus
+ *  optional PORT / PATH / KEY, and SECURE=false for plain ws://). */
+function peerServerOptions(): PeerOptions {
+  const options: PeerOptions = { debug: 0 };
+  const host = process.env.NEXT_PUBLIC_PEERJS_HOST;
+  if (host) {
+    options.host = host;
+    options.path = process.env.NEXT_PUBLIC_PEERJS_PATH ?? '/';
+    options.secure = process.env.NEXT_PUBLIC_PEERJS_SECURE !== 'false';
+    const port = Number(process.env.NEXT_PUBLIC_PEERJS_PORT);
+    if (Number.isFinite(port)) options.port = port;
+    const key = process.env.NEXT_PUBLIC_PEERJS_KEY;
+    if (key) options.key = key;
+  }
+  return options;
+}
 
 export type MessageType =
   | 'player-join'
@@ -77,6 +109,11 @@ export class P2PConnection {
       if (closed) return;
       closed = true;
       this.connections.delete(conn.peer);
+      try {
+        conn.close();
+      } catch {
+        // Connection may already be torn down.
+      }
       this.handlePeerDisconnect(conn.peer);
     };
 
@@ -94,16 +131,26 @@ export class P2PConnection {
       console.error('Connection error:', err);
       finalizeDisconnect();
     });
+
+    // PeerJS does not emit 'close' when the remote peer dies abruptly (tab
+    // kill, network drop) — only on graceful closes. Watch the underlying
+    // RTCPeerConnection: 'failed' is the browser's terminal verdict after ICE
+    // consent checks stop succeeding (~15-30s). 'disconnected' is excluded
+    // because it can recover on its own.
+    const pc = conn.peerConnection;
+    pc?.addEventListener('connectionstatechange', () => {
+      if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+        finalizeDisconnect();
+      }
+    });
   }
 
   async createRoom(): Promise<string> {
     this._isHost = true;
-    const roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const roomCode = generateRoomCode();
 
     return new Promise((resolve, reject) => {
-      this.peer = new Peer(`blackjack-${roomCode}`, {
-        debug: 0,
-      });
+      this.peer = new Peer(`blackjack-${roomCode}`, peerServerOptions());
 
       this.peer.on('open', (id) => {
         this._peerId = id;
@@ -128,36 +175,59 @@ export class P2PConnection {
     this._isHost = false;
     this._isSpectator = asSpectator;
 
+    const code = roomCode.trim().toUpperCase();
+    if (!ROOM_CODE_PATTERN.test(code)) {
+      throw new Error('Invalid room code');
+    }
+
     return new Promise((resolve, reject) => {
-      this.peer = new Peer({
-        debug: 0,
-      });
+      // Settle exactly once: a late 'open' after the timeout already rejected
+      // must not resolve, and a failed attempt must not leave a live Peer
+      // behind (it would keep reconnecting to the signaling server).
+      let settled = false;
+      const succeed = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        resolve();
+      };
+      const fail = (err: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        this.peer?.destroy();
+        this.peer = null;
+        reject(err);
+      };
+      const timeout = setTimeout(() => {
+        if (this.connections.size === 0) {
+          fail(new Error('Connection timeout - room not found'));
+        }
+      }, 15000);
+
+      this.peer = new Peer(peerServerOptions());
 
       this.peer.on('open', (id) => {
+        if (settled) return;
         this._peerId = id;
-        const conn = this.peer!.connect(`blackjack-${roomCode.toUpperCase()}`);
+        const conn = this.peer!.connect(`blackjack-${code}`);
 
         conn.on('open', () => {
+          if (settled) return;
           this.connections.set(conn.peer, conn);
           this.setupConnection(conn);
-          resolve();
+          succeed();
         });
 
         conn.on('error', (err) => {
-          reject(err);
+          fail(err instanceof Error ? err : new Error(String(err)));
         });
       });
 
       this.peer.on('error', (err) => {
         console.error('Peer error:', err);
-        reject(err);
+        fail(err instanceof Error ? err : new Error(String(err)));
       });
-
-      setTimeout(() => {
-        if (this.connections.size === 0) {
-          reject(new Error('Connection timeout - room not found'));
-        }
-      }, 15000);
     });
   }
 

@@ -1,4 +1,4 @@
-# Blackjack Online
+# Blackjack Online (v1.1)
 
 Browser-based blackjack built with Next.js, React, and PeerJS. The app has no backend game server: one browser becomes the host, keeps the canonical game state, and broadcasts it to the rest of the room over WebRTC.
 
@@ -18,6 +18,7 @@ Live app: <https://blackjack-online-one.vercel.app>
 - Six-deck blackjack shoe with split, double, insurance, and optional surrender
 - Autoplay with configurable stand threshold and auto-bet
 - Local bankroll and bet history persistence with client-side HMAC integrity checks
+- Strict host-side validation of peer message payloads (names, balances, bets)
 - English and Spanish UI with synthesized Web Audio effects
 
 ## Quick Start
@@ -40,10 +41,13 @@ Open `http://localhost:3000`.
 
 ```bash
 npm run lint
+npm run typecheck
+npm test
 npm run build
-npx tsc --noEmit
 npm start
 ```
+
+Tests use Node's built-in test runner with type stripping (Node 22.6+ required) — no test dependencies.
 
 ## Tech Stack
 
@@ -88,7 +92,7 @@ These are the rules currently implemented by the codebase. The full explanation 
 | Shoe | 6 decks |
 | Blackjack payout | `3:2` |
 | Dealer rule | Stands on all `17`s, including soft `17` |
-| Insurance | Optional room rule, offered only when dealer shows an Ace |
+| Insurance | Optional room rule, offered only when dealer shows an Ace and only on the un-acted 2-card initial hand |
 | Surrender | Optional room rule, returns half the bet |
 | Split | Enabled by default, up to 4 hands total |
 | Split tens | Allowed (`10/J/Q/K` may split together) |
@@ -127,15 +131,30 @@ docs/
 - `src/features/blackjack/hooks/useRoundCountdown.ts`: derived countdown and progress values
 - `src/features/blackjack/hooks/useAutoplay.ts`: auto-bet, auto-play, auto-next-round behavior
 - `src/features/blackjack/lib/blackjack.ts`: main game engine and state transforms
+- `src/features/blackjack/lib/validation.ts`: pure host-side input sanitization for untrusted payloads
 - `src/features/blackjack/lib/p2p.ts`: PeerJS wrapper
 - `src/features/blackjack/lib/wallet.ts`: signed bankroll persistence
 - `src/features/blackjack/lib/history.ts`: signed hand history persistence
 
 ## Environment Variables
 
-None are required for local development or production deployment in the current architecture.
+None are required — the app defaults to the public PeerJS cloud for signaling.
 
-If the networking layer is later moved off the default PeerJS cloud server, add the relevant public PeerJS host variables and document them in `.env.example`.
+To point at a self-hosted PeerJS signaling server instead, set these at build time:
+
+| Variable | Meaning |
+| --- | --- |
+| `NEXT_PUBLIC_PEERJS_HOST` | Signaling server hostname (enables the rest) |
+| `NEXT_PUBLIC_PEERJS_PORT` | Optional port |
+| `NEXT_PUBLIC_PEERJS_PATH` | Optional mount path, defaults to `/` |
+| `NEXT_PUBLIC_PEERJS_KEY` | Optional server key |
+| `NEXT_PUBLIC_PEERJS_SECURE` | Set to `false` for plain `ws://` (local dev servers) |
+
+Example for a local `npx peer --port 9000` server:
+
+```bash
+NEXT_PUBLIC_PEERJS_HOST=localhost NEXT_PUBLIC_PEERJS_PORT=9000 NEXT_PUBLIC_PEERJS_SECURE=false npm run dev
+```
 
 ## Deployment
 
@@ -158,8 +177,8 @@ No environment variables are needed today.
 
 - No backend authority exists beyond the host browser. If the host closes the tab, the room is gone.
 - The wallet and history signatures only deter casual tampering; the signing secret ships to the client.
-- Shuffle randomness uses `Math.random`, not a cryptographically secure RNG.
+- The balance a player brings into a room is client-declared: the host validates its shape (finite, non-negative, capped) but cannot verify its history. Multiplayer trust remains social.
 - The current `playing` phase does not enforce a strict seat-by-seat turn pointer; see [`docs/architecture-and-state.md`](docs/architecture-and-state.md) for the exact behavior.
-- The app strips the deck before syncing to non-host joiners, but the host still holds the full shoe locally.
+- Broadcasts are sanitized (`deck` stripped, dealer hole card masked), but the host player can always inspect the full shoe locally — hosting and playing in the same room requires trusting the host.
 - The `chat` message type exists in the transport layer but there is no chat reducer or UI.
 - PeerJS cloud signaling is convenient for small rooms, but it is not a production-grade multiplayer backend.

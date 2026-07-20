@@ -7,7 +7,7 @@ import {
   NEXT_ROUND_TIMEOUT_MS,
   PLAYER_ACTION_TIMEOUT_MS,
   allPlayersFinished,
-  isBlackjack,
+  isDealerBlackjackPending,
   flipDealerHoleCard,
   shouldDealerHit,
   dealerHitOne,
@@ -19,22 +19,19 @@ import {
   playerStand,
   addTableMessage,
 } from '@/features/blackjack/lib/blackjack';
-import { setBalance } from '@/features/blackjack/lib/wallet';
 import { sounds } from '@/features/blackjack/lib/sounds';
 
 interface UseDealerProgressionParams {
   gameState: GameState;
   gameStateRef: React.RefObject<GameState>;
   isHostRef: React.RefObject<boolean>;
-  myId: string;
-  setLocalBalance: (b: number) => void;
   syncGameState: (state: GameState) => void;
   onResultsTimeout: () => void;
 }
 
 export function useDealerProgression({
-  gameState, gameStateRef, isHostRef, myId,
-  setLocalBalance, syncGameState, onResultsTimeout,
+  gameState, gameStateRef, isHostRef,
+  syncGameState, onResultsTimeout,
 }: UseDealerProgressionParams) {
   const dealingRef = useRef(false);
 
@@ -151,25 +148,30 @@ export function useDealerProgression({
 
     // Check if dealer has BJ based on actual card values (the dealer.blackjack
     // flag is NOT set during dealInitialCards to avoid leaking the hole card).
-    const dealerHasBJ = isBlackjack(gameState.dealer.cards);
+    const dealerHasBJ = isDealerBlackjackPending(gameState);
 
     if (dealerHasBJ) {
+      // Anchor the reveal to the start of the phase so unrelated state updates
+      // (which re-run this effect) cannot keep pushing the flip back.
+      const remaining = Math.max(0, 1800 - (Date.now() - gameState.phaseStartedAt));
       const timer = setTimeout(() => {
         if (gameStateRef.current.phase !== 'playing') return;
         sounds.cardDeal();
         const flipped = flipDealerHoleCard(gameStateRef.current);
         syncGameState(flipped);
-      }, 1800);
+      }, remaining);
       return () => clearTimeout(timer);
     }
 
     if (allPlayersFinished(gameState)) {
+      // Anchor to the last player action (turnStartedAt) for the same reason.
+      const remaining = Math.max(0, 800 - (Date.now() - gameState.turnStartedAt));
       const timer = setTimeout(() => {
         if (gameStateRef.current.phase !== 'playing') return;
         sounds.cardDeal();
         const flipped = flipDealerHoleCard(gameStateRef.current);
         syncGameState(flipped);
-      }, 800);
+      }, remaining);
       return () => clearTimeout(timer);
     }
   }, [gameState, syncGameState, gameStateRef, isHostRef]);
@@ -190,16 +192,11 @@ export function useDealerProgression({
       const timer = setTimeout(() => {
         const finalized = finalizeDealerHand(gameStateRef.current);
         const resolved = resolveResults(finalized);
+        // The host's own wallet is persisted from authoritative state by
+        // useRoomConnection once this state commits.
         syncGameState(resolved);
-        const me = resolved.players[myId];
-        if (me) {
-          let newBal = me.balance;
-          if (newBal <= 0) newBal = 100;
-          setLocalBalance(newBal);
-          setBalance(newBal);
-        }
       }, 600);
       return () => clearTimeout(timer);
     }
-  }, [gameState, syncGameState, myId, setLocalBalance, gameStateRef, isHostRef]);
+  }, [gameState, syncGameState, gameStateRef, isHostRef]);
 }

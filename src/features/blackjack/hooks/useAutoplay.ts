@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { GameState, handValue, Hand } from '@/features/blackjack/lib/blackjack';
 import type { AutoplayConfig } from '@/features/blackjack/types/autoplay';
 
@@ -41,9 +41,6 @@ export function useAutoplay({
   useEffect(() => { autoplayRef.current = autoplay; }, [autoplay]);
   useEffect(() => { balanceRef.current = balance; }, [balance]);
   useEffect(() => { confirmBetRef.current = handleConfirmBetWith; }, [handleConfirmBetWith]);
-  const prevPhaseRef = useRef(gameState.phase);
-  const autoplayRoundRef = useRef(false);
-  const [autoplayRoundActive, setAutoplayRoundActive] = useState(false);
 
   // Narrow derived state to avoid re-running effects on unrelated gameState changes
   const autoPlayer = gameState.players[myId];
@@ -53,22 +50,13 @@ export function useAutoplay({
   const myAutoHandDone = activeHand ? isHandDone(activeHand) : true;
   const myAutoCardCount = activeHand?.cards.length ?? 0;
 
-  // --- Phase transition tracking ---
-  useEffect(() => {
-    const phase = gameState.phase;
-    const prev = prevPhaseRef.current;
-    if (phase !== prev) {
-      prevPhaseRef.current = phase;
-      if (phase === 'playing') {
-        const active = autoplayRef.current.enabled;
-        autoplayRoundRef.current = active;
-        setAutoplayRoundActive(active);
-      } else if (phase === 'betting' && prev !== 'betting') {
-        autoplayRoundRef.current = false;
-        setAutoplayRoundActive(false);
-      }
-    }
-  }, [gameState.phase]);
+  // Whether autoplay should be driving the current hand right now. This is a
+  // live derivation (not a snapshot taken once when the round started), so
+  // flipping the toggle mid-hand takes effect immediately in both directions:
+  // turning it on picks up the current hand right away instead of waiting for
+  // next round, and turning it off actually stops it instead of continuing
+  // to auto-act until the next betting phase.
+  const autoplayRoundActive = autoplay.enabled && !isSpectator && gameState.phase === 'playing';
 
   // --- Auto-bet ---
   useEffect(() => {
@@ -99,18 +87,19 @@ export function useAutoplay({
 
   // --- Auto-play (hit/stand/double) ---
   useEffect(() => {
-    if (!autoplayRoundRef.current || isSpectator) return;
-    if (gameState.phase !== 'playing') return;
+    if (!autoplayRoundActive) return;
     if (myAutoHandDone || myAutoCardCount === 0) return;
 
     const me = gameStateRef.current.players[myId];
     if (!me) return;
     const hand = me.hands[me.activeHandIndex];
     if (!hand || isHandDone(hand)) return;
-    const cfg = autoplayRef.current;
 
     const timer = setTimeout(() => {
-      // Re-read latest state inside callback to avoid stale actions
+      // Re-check live enabled state and re-read latest state inside the
+      // callback, so toggling autoplay off during this window cancels the
+      // queued action instead of firing it anyway.
+      if (!autoplayRef.current.enabled) return;
       const latestMe = gameStateRef.current.players[myId];
       if (!latestMe) return;
       const latestHand = latestMe.hands[latestMe.activeHandIndex];
@@ -118,23 +107,23 @@ export function useAutoplay({
       const latestVal = handValue(latestHand.cards);
 
       // Strategy: hit/stand on threshold
-      if (latestVal >= cfg.standOn) {
+      if (latestVal >= autoplayRef.current.standOn) {
         handleStand();
       } else {
         handleHit();
       }
     }, 600);
     return () => clearTimeout(timer);
-  }, [gameState.phase, myAutoHandDone, myAutoCardCount, activeHandIndex, myId, isSpectator,
+  }, [autoplayRoundActive, myAutoHandDone, myAutoCardCount, activeHandIndex, myId,
       handleHit, handleStand, gameStateRef]);
 
   // --- Safety timeout: force stand if auto-play hangs for 15s ---
   useEffect(() => {
-    if (!autoplayRoundRef.current || isSpectator) return;
-    if (gameState.phase !== 'playing') return;
+    if (!autoplayRoundActive) return;
     if (myAutoHandDone) return;
 
     const timer = setTimeout(() => {
+      if (!autoplayRef.current.enabled) return;
       const latestMe = gameStateRef.current.players[myId];
       if (!latestMe) return;
       const latestHand = latestMe.hands[latestMe.activeHandIndex];
@@ -143,7 +132,7 @@ export function useAutoplay({
       handleStand();
     }, AUTOPLAY_SAFETY_TIMEOUT_MS);
     return () => clearTimeout(timer);
-  }, [gameState.phase, myAutoHandDone, myId, isSpectator, handleStand, gameStateRef]);
+  }, [autoplayRoundActive, myAutoHandDone, myId, handleStand, gameStateRef]);
 
   // --- Auto new-round (host only) ---
   useEffect(() => {

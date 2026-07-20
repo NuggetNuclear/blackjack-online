@@ -93,11 +93,6 @@ export default function BottomControls({
               onSurrender={onSurrender}
               canSurrender={myPlayer && activeHand ? canSurrenderFn(activeHand, gameState.settings.surrenderEnabled) : false}
             />
-            {autoplay.enabled && !autoplayRoundActive && (
-              <div className="text-amber-400/60 text-[10px] font-bold tracking-wider text-outline-sm uppercase bg-black/40 px-2 py-0.5 rounded-full border border-amber-900/50">
-                🤖 {t.autoplay.queued}
-              </div>
-            )}
           </div>
         )
       )}

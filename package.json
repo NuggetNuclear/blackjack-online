@@ -1,12 +1,14 @@
 {
   "name": "blackjack-online",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test src/features/blackjack/lib/*.test.ts"
   },
   "dependencies": {
     "next": "^16.2.4",
@@ -24,5 +26,8 @@
     "tailwindcss": "^4.2.4",
     "typescript": "^6.0.3"
   },
-  "packageManager": "npm@11.6.2"
+  "packageManager": "npm@11.6.2",
+  "overrides": {
+    "postcss": "^8.5.10"
+  }
 }

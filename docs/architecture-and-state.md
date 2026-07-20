@@ -49,6 +49,7 @@ The main consequence is operational rather than technical: if the host disconnec
 | `src/features/blackjack/hooks/useAutoplay.ts` | Auto-bet, simple hit/stand automation, and host auto-next-round |
 | `src/features/blackjack/hooks/useResultsEffects.ts` | Sounds, signed history writes, and win/loss overlays |
 | `src/features/blackjack/lib/blackjack.ts` | Core state transforms and blackjack rules |
+| `src/features/blackjack/lib/validation.ts` | Pure host-side input sanitization for untrusted payloads |
 | `src/features/blackjack/lib/p2p.ts` | PeerJS wrapper |
 | `src/features/blackjack/lib/wallet.ts` | Signed bankroll persistence |
 | `src/features/blackjack/lib/history.ts` | Signed result history persistence |
@@ -165,15 +166,25 @@ The transport wrapper lives in `src/features/blackjack/lib/p2p.ts`.
 - payloads are not trusted to identify the sender
 - room actions are bound to the actual connection that delivered them
 
-### Deck visibility
+### Payload validation
 
-When the host syncs state to a newly joined player or spectator, the host sends a copy of state with `deck: []`.
+All payload data (names, balances, bets) from peers is strictly validated by the host using pure functions in `validation.ts`. This prevents poisoned payloads (e.g., `NaN` balances, negative bets, oversized strings) from crashing the engine or propagating to other peers.
+
+### Deck and hidden-card visibility
+
+Every host broadcast goes through `sanitizeStateForBroadcast()` in `blackjack.ts`, which:
+
+- strips the deck (`deck: []`)
+- replaces any face-down card (the dealer hole card) with a fixed placeholder, so its real rank and suit never leave the host
 
 That means:
 
 - peers cannot inspect future cards from replicated state
-- the host still retains the full deck locally
+- peers cannot read the dealer hole card out of `game-state-sync` payloads
+- the host still retains the full deck and real hole card locally
 - the host remains the only runtime authority able to resolve future draws
+
+The real hole card reaches peers naturally once `flipDealerHoleCard()` turns it face up and the next broadcast goes out.
 
 ## 6. Host-Authoritative State Flow
 
@@ -185,9 +196,8 @@ The host:
 
 - creates the room
 - initializes `GameState`
-- owns `syncGameState`
-- applies actions immediately in memory
-- broadcasts updated state to all peers
+- applies actions immediately in memory (via pure `setGameState` updaters)
+- broadcasts sanitized state to all peers from a single effect that runs whenever canonical state commits, so the broadcast always equals exactly what the host rendered
 
 ### Peer behavior
 
@@ -233,9 +243,9 @@ During `betting`:
 During `playing`:
 
 - players act on their active hand
-- the dealer hole card stays face down visually
-- if `dealer.blackjack` is already true, the host flips the hole card after `1800ms`
-- otherwise the host waits until `allPlayersFinished()`, then flips the hole card after `800ms`
+- the dealer hole card stays face down visually (and is masked in broadcasts)
+- if the host detects a dealer blackjack, it flips the hole card `1800ms` after the phase started, and rejects every action except `insure`/`decline-insurance` during that window
+- otherwise the host waits until `allPlayersFinished()`, then flips the hole card `800ms` after the last action
 
 ### Dealer turn
 
@@ -246,7 +256,7 @@ During `dealer-turn`:
 - the dealer draws one card every `800ms` until the hand should stand
 - the host then finalizes the dealer hand and resolves results
 
-`dealer.blackjack` is **not** written into `GameState` until `finalizeDealerHand()` runs. While the hole card is face down, the host detects dealer blackjack on its own copy by calling `isBlackjack(state.dealer.cards)` directly — see section 14 for why.
+`dealer.blackjack` is **not** written into `GameState` until `finalizeDealerHand()` runs. While the hole card is face down, the host detects dealer blackjack on its own copy via `isDealerBlackjackPending(state)` — see section 14 for why.
 
 ### Results
 
@@ -349,6 +359,10 @@ Autoplay is implemented in `useAutoplay.ts`.
 - it does not make split, insurance, or surrender decisions
 - it only implements a threshold-based hit/stand heuristic
 
+### State derivation
+
+Autoplay evaluates its actions directly against the live, canonical `GameState` from `useRoomConnection`. It deliberately avoids closed-over state variables to prevent stale interval reads. It also includes explicit race-condition safeguards to prevent multiple rapid triggers if the interval ticks slightly before the state completes its update.
+
 There is also a `15000ms` autoplay safety timeout that forces a stand if the round appears stuck.
 
 ## 12. Persistence Model
@@ -398,13 +412,17 @@ Switching to spectator removes the player from `players`. If they had an active 
 
 Leaving mid-round also forfeits the current bet for the same reason.
 
+### Transport disconnects
+
+When a peer's data connection closes without an explicit `player-leave` (tab closed, network drop), the host's transport layer aggressively detects this and immediately removes their seat and broadcasts the update. This immediately clears out "ghost seats" that would otherwise stall the game while waiting for the `10s` action timeout. The bet is forfeited with the same semantics as an explicit leave — a dropped peer can never reconnect to its seat because PeerJS assigns a fresh peer ID per session.
+
 ## 14. Notable Implementation Nuances
 
-- `dealInitialCards()` deliberately does **not** set `dealer.blackjack`, even when the hole card would make it `true`. Setting the flag at deal time would leak the hole card to all clients via `game-state-sync`. Instead, the host detects dealer blackjack locally by calling `isBlackjack(state.dealer.cards)` in `useDealerProgression`, and the canonical flag is finally written by `finalizeDealerHand()` once the hole card has been flipped.
-- There is no dedicated "insurance resolution" or "dealer peek" subphase before players begin acting.
-- Because `playing` begins immediately after the deal, there can be a brief window where players can act before a dealer-blackjack reveal animation completes.
+- `dealInitialCards()` deliberately does **not** set `dealer.blackjack`, even when the hole card would make it `true`. Setting the flag at deal time would leak the hole card to all clients via `game-state-sync`. Instead, the host detects dealer blackjack locally via `isDealerBlackjackPending()`, and the canonical flag is finally written by `finalizeDealerHand()` once the hole card has been flipped. Broadcasts additionally mask the hole card's rank and suit via `sanitizeStateForBroadcast()`.
+- There is no dedicated "insurance resolution" or "dealer peek" subphase before players begin acting. Instead, while the host holds a still-hidden dealer blackjack (the `1800ms` pre-reveal window), it silently rejects every action except `insure`/`decline-insurance`, so nobody can hit, double, or split into an already-decided round. Insurance stays allowed because that window is the only moment an insurance bet can ever win.
+- Invalid or rejected actions do not change state identity and therefore trigger no broadcast; a peer's optimistic balance display is walked back by the next authoritative sync (at the latest, the next phase transition).
 - `playDealerHand()` in `blackjack.ts` is marked `@deprecated`. The runtime path is the staged trio: `flipDealerHoleCard()` → `dealerHitOne()` → `finalizeDealerHand()`. New code should not call `playDealerHand`.
-- The deck can be replaced by a fresh shuffled six-deck shoe as soon as fewer than 20 cards remain, even if that happens during a round.
+- The shoe is replaced at the round boundary: `dealInitialCards()` swaps in a fresh shuffled six-deck shoe when fewer than `RESHUFFLE_THRESHOLD` (60) cards remain. `dealCard()` keeps an emergency mid-round refill below 20 cards, but the round-boundary swap makes it practically unreachable.
 - A spectator who clicks "Join Game" defers their `isSpectator → false` flip until the host's next `game-state-sync` includes them as a player (`pendingJoinRef` in `useRoomConnection`). This avoids a window where the UI shows player controls but the player isn't yet in `players`.
 - A `dealingRef` guard in `useDealerProgression` prevents the "all-ready" path and the betting-timeout path from both dispatching the deal in the same tick.
 - Joining via URL: a `?room=CODE` query parameter on the lobby URL pre-fills the join input. The "Copy Link" action in the waiting room writes a URL of this shape, while "Copy Code" writes only the 6-char room code.
@@ -412,7 +430,7 @@ Leaving mid-round also forfeits the current bet for the same reason.
 ## 15. Current Architecture Risks
 
 - Host disconnect means room loss.
-- Multiplayer trust is social, not cryptographic.
-- Randomness is good enough for casual play but not auditable or casino-grade.
+- Multiplayer trust is social, not cryptographic: the starting balance a player brings into a room is client-declared (the host validates its shape, not its history).
+- Randomness uses the browser CSPRNG, but the shuffle is not independently auditable (no commit-reveal scheme).
 - The turn model is simpler than real table sequencing and may not match every player expectation.
 - The transport layer reserves chat but does not implement it.

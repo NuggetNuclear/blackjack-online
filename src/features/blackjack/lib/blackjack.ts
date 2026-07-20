@@ -85,11 +85,23 @@ export function createDeck(numDecks: number = 6): Card[] {
   return shuffleDeck(deck);
 }
 
+/** Uniform random integer in [0, maxExclusive) from the platform CSPRNG,
+ *  using rejection sampling to avoid modulo bias. */
+function randomInt(maxExclusive: number): number {
+  if (maxExclusive <= 1) return 0;
+  const limit = Math.floor(0x1_0000_0000 / maxExclusive) * maxExclusive;
+  const buf = new Uint32Array(1);
+  do {
+    crypto.getRandomValues(buf);
+  } while (buf[0] >= limit);
+  return buf[0] % maxExclusive;
+}
+
 export function shuffleDeck(deck: Card[]): Card[] {
   const shuffled = [...deck];
   // Fisher-Yates shuffle
   for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = randomInt(i + 1);
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
   return shuffled;
@@ -170,6 +182,12 @@ export function createEmptyHand(): Hand {
   };
 }
 
+/** When the shoe drops below this many cards at the start of a round, it is
+ *  replaced with a fresh shuffled shoe BEFORE dealing. Keeping the swap at the
+ *  round boundary means the emergency mid-round refill in dealCard (which can
+ *  briefly duplicate cards already on the table) is practically unreachable. */
+export const RESHUFFLE_THRESHOLD = 60;
+
 export function dealCard(deck: Card[], faceUp: boolean = true): { card: Card; deck: Card[] } {
   if (deck.length < 20) {
     deck = createDeck(6);
@@ -177,6 +195,38 @@ export function dealCard(deck: Card[], faceUp: boolean = true): { card: Card; de
   const newDeck = [...deck];
   const card = { ...newDeck.pop()!, faceUp };
   return { card, deck: newDeck };
+}
+
+/** Placeholder substituted for any face-down card when replicating state to
+ *  peers. The real rank/suit stays host-only until the card is flipped. */
+const HIDDEN_CARD: Card = { suit: 'spades', rank: 'A', faceUp: false };
+
+function maskFaceDownCards(hand: Hand): Hand {
+  if (!hand.cards.some((c) => !c.faceUp)) return hand;
+  return { ...hand, cards: hand.cards.map((c) => (c.faceUp ? c : { ...HIDDEN_CARD })) };
+}
+
+/** State that is safe to replicate to non-host clients: the deck is stripped
+ *  and every face-down card (the dealer hole card) is masked, so peers can
+ *  never read hidden card values out of the synced payload. */
+export function sanitizeStateForBroadcast(state: GameState): GameState {
+  let players = state.players;
+  for (const [id, player] of Object.entries(state.players)) {
+    const maskedHands = player.hands.map(maskFaceDownCards);
+    if (maskedHands.some((hand, i) => hand !== player.hands[i])) {
+      if (players === state.players) players = { ...players };
+      players[id] = { ...player, hands: maskedHands };
+    }
+  }
+  return { ...state, deck: [], dealer: maskFaceDownCards(state.dealer), players };
+}
+
+/** True while the dealer holds an unrevealed natural blackjack: the hole card
+ *  is still face down but the two dealer cards already total 21. Host-only
+ *  knowledge — the sanitized broadcast masks the hole card, so peers cannot
+ *  compute this themselves. */
+export function isDealerBlackjackPending(state: GameState): boolean {
+  return state.dealer.cards.some((c) => !c.faceUp) && isBlackjack(state.dealer.cards);
 }
 
 export function createInitialGameState(settings: RoomSettings = DEFAULT_ROOM_SETTINGS): GameState {
@@ -195,8 +245,22 @@ export function createInitialGameState(settings: RoomSettings = DEFAULT_ROOM_SET
   };
 }
 
+/** First hand index at or after `fromIndex` that can still be played, skipping
+ *  hands that are already resolved (e.g. split hands that auto-stood on 21).
+ *  Returns hands.length when no playable hand remains. */
+export function nextPlayableHandIndex(hands: Hand[], fromIndex: number): number {
+  let index = Math.max(0, fromIndex);
+  while (index < hands.length) {
+    const hand = hands[index];
+    if (!hand.stood && !hand.busted && !hand.blackjack && !hand.surrendered) break;
+    index++;
+  }
+  return index;
+}
+
 export function dealInitialCards(state: GameState): GameState {
-  let deck = [...state.deck];
+  // Swap in a fresh shoe at the round boundary, before any card is committed.
+  let deck = state.deck.length < RESHUFFLE_THRESHOLD ? createDeck(6) : [...state.deck];
   const newPlayers = { ...state.players };
   const activePlayerIds = Object.keys(state.players).filter((id) => {
     const player = state.players[id];
@@ -263,6 +327,7 @@ export function dealInitialCards(state: GameState): GameState {
 }
 
 export function playerHit(state: GameState, playerId: string): GameState {
+  if (state.phase !== 'playing') return state;
   const player = state.players[playerId];
   if (!player) return state;
   if (player.activeHandIndex >= player.hands.length) return state;
@@ -286,13 +351,16 @@ export function playerHit(state: GameState, playerId: string): GameState {
       [playerId]: {
         ...player,
         hands: newHands,
-        activeHandIndex: stood ? player.activeHandIndex + 1 : player.activeHandIndex,
+        activeHandIndex: stood
+          ? nextPlayableHandIndex(newHands, player.activeHandIndex + 1)
+          : player.activeHandIndex,
       },
     },
   };
 }
 
 export function playerStand(state: GameState, playerId: string): GameState {
+  if (state.phase !== 'playing') return state;
   const player = state.players[playerId];
   if (!player) return state;
   if (player.activeHandIndex >= player.hands.length) return state;
@@ -310,13 +378,14 @@ export function playerStand(state: GameState, playerId: string): GameState {
       [playerId]: {
         ...player,
         hands: newHands,
-        activeHandIndex: player.activeHandIndex + 1,
+        activeHandIndex: nextPlayableHandIndex(newHands, player.activeHandIndex + 1),
       },
     },
   };
 }
 
 export function playerDoubleDown(state: GameState, playerId: string): GameState {
+  if (state.phase !== 'playing') return state;
   const player = state.players[playerId];
   if (!player) return state;
   const hand = player.hands[player.activeHandIndex];
@@ -347,7 +416,7 @@ export function playerDoubleDown(state: GameState, playerId: string): GameState 
         ...player,
         balance: player.balance - hand.bet,
         hands: newHands,
-        activeHandIndex: player.activeHandIndex + 1,
+        activeHandIndex: nextPlayableHandIndex(newHands, player.activeHandIndex + 1),
       },
     },
   };
@@ -371,6 +440,7 @@ export function canSplit(hand: Hand, balance: number, settings: RoomSettings, ha
 }
 
 export function playerSplit(state: GameState, playerId: string): GameState {
+  if (state.phase !== 'playing') return state;
   const player = state.players[playerId];
   if (!player) return state;
   const handIndex = player.activeHandIndex;
@@ -410,8 +480,10 @@ export function playerSplit(state: GameState, playerId: string): GameState {
   const newHands = [...player.hands];
   newHands.splice(handIndex, 1, hand1, hand2);
 
-  // If hand1 auto-stood (e.g. got BJ), move to next hand index, else stay on same index (which is now hand1)
-  const nextActiveIndex = hand1.stood ? handIndex + 1 : handIndex;
+  // Advance to the first hand that is still playable — both split hands may
+  // have auto-stood on 21, and earlier splits can leave playable hands further
+  // down the array.
+  const nextActiveIndex = nextPlayableHandIndex(newHands, handIndex);
 
   return {
     ...state,
@@ -442,6 +514,7 @@ export function canSurrender(hand: Hand, surrenderEnabled: boolean): boolean {
 }
 
 export function playerSurrender(state: GameState, playerId: string): GameState {
+  if (state.phase !== 'playing') return state;
   const player = state.players[playerId];
   if (!player) return state;
   const hand = player.hands[player.activeHandIndex];
@@ -464,7 +537,7 @@ export function playerSurrender(state: GameState, playerId: string): GameState {
         ...player,
         balance: player.balance + halfBet,
         hands: newHands,
-        activeHandIndex: player.activeHandIndex + 1,
+        activeHandIndex: nextPlayableHandIndex(newHands, player.activeHandIndex + 1),
       },
     },
   };
@@ -485,10 +558,13 @@ export function playerInsure(state: GameState, playerId: string): GameState {
 
   const player = state.players[playerId];
   if (!player) return state;
-  const hand = player.hands[0]; // Insurance is always offered on initial hand only
-  if (!hand || hand.bet <= 0 || hand.cards.length < 2) return state;
+  // Standard rule: insurance is only offered on the un-acted initial hand —
+  // exactly 2 cards, no split yet, no prior insurance.
+  if (player.hands.length !== 1) return state;
+  const hand = player.hands[0];
+  if (!hand || hand.bet <= 0 || hand.cards.length !== 2) return state;
   if (hand.stood || hand.busted || hand.surrendered || hand.blackjack) return state;
-  if (!hand || hand.insuranceBet > 0) return state;
+  if (hand.insuranceBet > 0) return state;
   const insuranceCost = Math.floor(hand.bet / 2);
   if (insuranceCost <= 0) return state;
   if (insuranceCost > player.balance) return state;
