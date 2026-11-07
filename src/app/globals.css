@@ -904,3 +904,493 @@ select {
     letter-spacing: 0.16em;
   }
 }
+
+/* ===== Lobby v2 (entry screen) =====
+   Reuses the --entry-* tokens already defined in globals.css.
+   Mobile-first: the panel behaves like a bottom sheet so CTAs stay in the thumb zone. */
+
+:root {
+  --lobby-gold: #d9b45f;
+  --lobby-gold-soft: rgba(217, 180, 95, 0.16);
+  --lobby-gold-line: rgba(217, 180, 95, 0.38);
+  --lobby-felt-1: #155233;
+  --lobby-felt-2: #0c3522;
+  --lobby-felt-3: #061a10;
+  --lobby-panel: rgba(5, 18, 11, 0.82);
+  --lobby-panel-border: rgba(236, 244, 238, 0.1);
+  --lobby-danger: #f3b6b1;
+  --lobby-danger-bg: rgba(190, 52, 44, 0.16);
+  --lobby-danger-line: rgba(243, 182, 177, 0.45);
+  --lobby-radius: 18px;
+}
+
+.lobby {
+  position: relative;
+  min-height: var(--app-height, 100dvh);
+  height: var(--app-height, 100dvh);
+  overflow-y: auto;
+  color: var(--entry-text);
+  background:
+    radial-gradient(120% 70% at 50% 0%, rgba(217, 180, 95, 0.1), transparent 46%),
+    radial-gradient(90% 60% at 50% 30%, var(--lobby-felt-1) 0%, var(--lobby-felt-2) 58%, var(--lobby-felt-3) 100%);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* felt weave + vignette */
+.lobby::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.018) 0 1px, transparent 1px 6px),
+    repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0.05) 0 1px, transparent 1px 6px),
+    radial-gradient(120% 90% at 50% 40%, transparent 55%, rgba(0, 0, 0, 0.45) 100%);
+}
+
+.lobby__shell {
+  position: relative;
+  z-index: 1;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 1120px);
+  margin: 0 auto;
+  padding: max(12px, env(safe-area-inset-top)) 16px 0;
+}
+
+.lobby__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+}
+
+.lobby__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--entry-muted);
+}
+
+.lobby__chip {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--lobby-gold);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  background:
+    radial-gradient(circle, rgba(5, 18, 11, 0.9) 54%, transparent 55%),
+    repeating-conic-gradient(var(--lobby-gold) 0 15deg, #7b1d1d 15deg 30deg);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.lobby__lang {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--entry-secondary-border);
+  background: var(--entry-secondary);
+  color: var(--entry-text);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  cursor: pointer;
+}
+.lobby__lang:hover { border-color: var(--entry-border-strong); }
+.lobby__lang [data-dim] { color: var(--entry-subtle); }
+
+/* ----- Hero ----- */
+.lobby__hero {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 10px;
+  padding: 12px 0 20px;
+}
+
+.lobby__cards {
+  position: relative;
+  width: 132px;
+  height: 104px;
+  margin-bottom: 4px;
+}
+
+.pcard {
+  position: absolute;
+  top: 6px;
+  width: 64px;
+  height: 90px;
+  border-radius: 9px;
+  background: linear-gradient(160deg, #ffffff 0%, #f1ede2 100%);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+  font-family: Georgia, 'Times New Roman', serif;
+  font-weight: 700;
+}
+.pcard__corner {
+  position: absolute;
+  top: 6px;
+  left: 7px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 0.95;
+  font-size: 0.95rem;
+}
+.pcard__pip {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 2rem;
+}
+.pcard--a { left: 14px; transform: rotate(-11deg); color: #12161a; animation: lobbyFloatA 6s ease-in-out infinite; }
+.pcard--k { left: 54px; transform: rotate(9deg); color: #b3261e; animation: lobbyFloatB 6s ease-in-out infinite; }
+
+.lobby__title {
+  margin: 0;
+  font-size: clamp(2.3rem, 9vw, 4.2rem);
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  line-height: 1;
+  background: linear-gradient(180deg, #fbf3dc 0%, var(--lobby-gold) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 2px 18px rgba(217, 180, 95, 0.12);
+}
+
+.lobby__tagline {
+  margin: 0;
+  max-width: 34ch;
+  color: var(--entry-muted);
+  font-size: 0.98rem;
+  line-height: 1.45;
+}
+
+.lobby__payouts {
+  display: none;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.lobby__payouts li {
+  padding: 6px 12px;
+  border: 1px solid var(--lobby-gold-line);
+  border-radius: 999px;
+  color: var(--lobby-gold);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+/* ----- Panel (bottom sheet on mobile) ----- */
+.lobby__panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0 -16px;
+  padding: 20px 16px max(18px, env(safe-area-inset-bottom));
+  border: 1px solid var(--lobby-panel-border);
+  border-bottom: 0;
+  border-radius: 26px 26px 0 0;
+  background: var(--lobby-panel);
+  box-shadow: 0 -18px 40px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(10px);
+  animation: lobbyRise 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.lobby__panel::before {
+  /* thin gold rail, like the edge of a table */
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 24px;
+  right: 24px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--lobby-gold-line), transparent);
+}
+
+.lobby__invite {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--lobby-gold-line);
+  border-radius: 14px;
+  background: var(--lobby-gold-soft);
+  color: #f6e7bf;
+  font-size: 0.9rem;
+  line-height: 1.3;
+}
+.lobby__invite strong { font-family: var(--font-geist-mono, monospace); letter-spacing: 0.12em; }
+.lobby__invite-icon { font-size: 1.1rem; color: var(--lobby-gold); }
+
+/* ----- Fields ----- */
+.lfield { display: flex; flex-direction: column; gap: 6px; }
+
+.lfield__label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--entry-muted);
+}
+.lfield__count { font-weight: 600; letter-spacing: 0.04em; color: var(--entry-subtle); font-variant-numeric: tabular-nums; }
+
+.lfield__control { position: relative; display: flex; align-items: center; }
+
+.lfield__avatar {
+  position: absolute;
+  left: 12px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--lobby-gold-soft);
+  border: 1px solid var(--lobby-gold-line);
+  color: var(--lobby-gold);
+  font-weight: 800;
+  font-size: 0.9rem;
+  pointer-events: none;
+}
+
+.lobby .entry-input { font-size: 1.05rem; } /* >=16px avoids iOS zoom */
+.lfield__control .entry-input { padding-left: 54px; }
+.lobby .entry-input:focus { border-color: var(--lobby-gold-line); box-shadow: 0 0 0 3px rgba(217, 180, 95, 0.14); }
+.lobby .entry-input--invalid,
+.lobby .entry-input--invalid:focus { border-color: var(--lobby-danger-line); box-shadow: 0 0 0 3px rgba(226, 98, 88, 0.2); }
+.lobby .entry-input:disabled { opacity: 0.6; }
+
+.lfield__hint { margin: 0; font-size: 0.82rem; color: var(--entry-subtle); line-height: 1.35; }
+.lfield__error {
+  margin: 0;
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  font-size: 0.85rem;
+  color: var(--lobby-danger);
+  line-height: 1.35;
+}
+
+.lobby__code {
+  text-align: center;
+  font-family: var(--font-geist-mono, monospace);
+  font-size: 1.6rem !important;
+  font-weight: 700;
+  letter-spacing: 0.42em;
+  text-indent: 0.42em; /* re-centre after trailing letter-spacing */
+  text-transform: uppercase;
+  min-height: 64px !important;
+}
+.lobby__code::placeholder { color: rgba(222, 234, 224, 0.22); letter-spacing: 0.42em; }
+
+/* ----- Segmented tabs ----- */
+.lseg {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 4px;
+  gap: 4px;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.32);
+  border: 1px solid var(--entry-border);
+}
+.lseg__tab {
+  min-height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--entry-muted);
+  font-size: 0.92rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+}
+.lseg__tab:hover { color: var(--entry-text); }
+.lseg__tab[aria-selected='true'] {
+  background: linear-gradient(180deg, #1d5a38, #154a2d);
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(217, 180, 95, 0.35), 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+.lseg__tab:disabled { cursor: not-allowed; opacity: 0.5; }
+
+.lpanel { display: flex; flex-direction: column; gap: 14px; animation: lobbyFade 0.22s ease both; }
+.lpanel[hidden] { display: none; }
+
+/* ----- Rules ----- */
+.lrules { margin: 0; padding: 0; border: 0; min-width: 0; }
+.lrules legend {
+  padding: 0;
+  margin-bottom: 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--entry-muted);
+}
+.lrules__row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.lobby .entry-toggle { min-height: 48px; }
+
+/* ----- Actions ----- */
+.lactions { display: flex; flex-direction: column; gap: 10px; }
+
+.lobby .entry-button { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 10px; }
+.lobby .entry-button--primary {
+  min-height: 58px;
+  font-size: 1.05rem;
+  background: linear-gradient(180deg, #e2c071 0%, #c99b3c 100%);
+  border-color: #a77d27;
+  color: #1d1406;
+  box-shadow: 0 6px 18px rgba(201, 155, 60, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+.lobby .entry-button--primary:hover { background: linear-gradient(180deg, #ebcb7e 0%, #d3a646 100%); }
+.lobby .entry-button--secondary { flex-direction: column; gap: 2px; min-height: 58px; }
+.lbtn__sub { font-size: 0.78rem; font-weight: 500; color: var(--entry-subtle); }
+.lobby .entry-button--text { min-height: 44px; padding: 0 8px; align-self: center; text-decoration: underline; text-underline-offset: 4px; text-decoration-color: rgba(222, 234, 224, 0.25); }
+.lobby .entry-button[aria-busy='true'] { cursor: progress; opacity: 1; }
+
+.lspinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 2.5px solid currentColor;
+  border-right-color: transparent;
+  animation: lobbySpin 0.8s linear infinite;
+}
+
+/* ----- Status / alert ----- */
+.lstatus {
+  margin: 0;
+  min-height: 1.2em;
+  text-align: center;
+  font-size: 0.86rem;
+  color: var(--entry-muted);
+}
+.lstatus:empty { display: none; }
+
+.lalert {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border: 1px solid var(--lobby-danger-line);
+  border-radius: 14px;
+  background: var(--lobby-danger-bg);
+  color: #ffe3e0;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  animation: lobbyShake 0.36s ease both;
+}
+.lalert__icon {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(243, 182, 177, 0.2);
+  color: var(--lobby-danger);
+  font-weight: 800;
+  font-size: 0.8rem;
+}
+.lalert__title { display: block; font-weight: 700; color: #fff; }
+
+.lobby__foot {
+  margin: 0;
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  color: var(--entry-subtle);
+}
+.lobby__foot b { color: var(--entry-muted); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ----- Mobile: collapse the decorative cards when the panel needs room
+   (join tab, or short screens) so the CTA never leaves the viewport ----- */
+@media (max-width: 959px) {
+  .lobby[data-compact='true'] .lobby__cards { display: none; }
+  .lobby[data-compact='true'] .lobby__hero { padding: 4px 0 16px; }
+}
+@media (max-height: 700px) and (max-width: 959px) {
+  .lobby__cards { display: none; }
+  .lobby__hero { padding: 8px 0 14px; }
+}
+
+/* ----- Desktop: two columns, panel as a floating card ----- */
+@media (min-width: 960px) {
+  .lobby__shell { padding: 24px 40px; }
+  .lobby__body {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1.1fr minmax(380px, 440px);
+    align-items: center;
+    gap: 64px;
+  }
+  .lobby__hero { align-items: flex-start; text-align: left; padding: 0; }
+  .lobby__cards { width: 190px; height: 150px; }
+  .lobby__cards .pcard { width: 92px; height: 130px; border-radius: 12px; }
+  .lobby__cards .pcard--a { left: 10px; }
+  .lobby__cards .pcard--k { left: 74px; }
+  .pcard__corner { font-size: 1.25rem; top: 8px; left: 10px; }
+  .pcard__pip { font-size: 3rem; }
+  .lobby__tagline { font-size: 1.12rem; }
+  .lobby__payouts { display: flex; justify-content: flex-start; }
+  .lobby__panel {
+    margin: 0;
+    padding: 26px;
+    border-bottom: 1px solid var(--lobby-panel-border);
+    border-radius: 26px;
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.45);
+  }
+}
+@media (max-width: 959px) {
+  .lobby__body { flex: 1; display: flex; flex-direction: column; }
+}
+
+/* ----- Motion ----- */
+@keyframes lobbyRise { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
+@keyframes lobbyFade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes lobbySpin { to { transform: rotate(360deg); } }
+@keyframes lobbyShake { 0%, 100% { transform: none; } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
+@keyframes lobbyFloatA { 0%, 100% { transform: rotate(-11deg) translateY(0); } 50% { transform: rotate(-9deg) translateY(-4px); } }
+@keyframes lobbyFloatB { 0%, 100% { transform: rotate(9deg) translateY(0); } 50% { transform: rotate(11deg) translateY(-6px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .lobby__panel, .lpanel, .lalert, .pcard { animation: none !important; }
+  .lspinner { animation-duration: 1.6s !important; animation-iteration-count: infinite !important; }
+}
