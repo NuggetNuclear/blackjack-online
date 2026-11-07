@@ -89,20 +89,20 @@ export default function BettingPanel({
         ))}
       </div>
 
-      <div className="flex gap-3">
+      <div className="flex flex-wrap justify-center gap-2 sm:gap-3">
         <button
           onClick={() => { if (!isLocked) { sounds.bet(); onAllIn(); } }}
           disabled={isLocked || balance <= 0}
-          className="btn-cartoon btn-fire px-6 py-2.5 bg-red-500 hover:bg-red-400 disabled:bg-gray-600
+          className="btn-cartoon btn-fire whitespace-nowrap px-4 sm:px-6 py-2.5 bg-red-500 hover:bg-red-400 disabled:bg-gray-600
             text-white text-sm border-red-700"
         >
-          🔥 {t.betting.allIn} 🔥
+          {t.betting.allIn}
         </button>
 
         <button
           onClick={() => { if (!isLocked) { sounds.bet(); onConfirmBet(); } }}
           disabled={isLocked || currentBet <= 0}
-          className="btn-cartoon px-6 py-2.5 bg-yellow-400 hover:bg-yellow-300 disabled:bg-gray-600
+          className="btn-cartoon whitespace-nowrap px-4 sm:px-6 py-2.5 bg-yellow-400 hover:bg-yellow-300 disabled:bg-gray-600
             text-gray-900 text-sm border-yellow-600"
         >
           {t.betting.deal}
@@ -112,7 +112,7 @@ export default function BettingPanel({
           <button
             onClick={() => { if (!isLocked) onBetChange(0); }}
             disabled={isLocked}
-            className="btn-cartoon px-4 py-2.5 bg-gray-500 hover:bg-gray-400
+            className="btn-cartoon whitespace-nowrap px-4 py-2.5 bg-gray-500 hover:bg-gray-400
               text-white/80 text-xs border-gray-700"
           >
             {t.betting.clear}

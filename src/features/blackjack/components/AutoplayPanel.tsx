@@ -42,7 +42,7 @@ export default function AutoplayPanel({ config, onChange }: AutoplayPanelProps) 
       </button>
 
       {open && (
-        <div className="absolute top-full mt-2 right-0 bg-gray-900/98 border-[3px] border-amber-500/60 rounded-2xl shadow-2xl animate-bounce-in z-[70] w-[260px]">
+        <div className="absolute top-full mt-2 right-0 max-sm:right-auto max-sm:left-1/2 max-sm:-translate-x-1/2 max-w-[calc(100vw-24px)] bg-gray-900/98 border-[3px] border-amber-500/60 rounded-2xl shadow-2xl animate-bounce-in z-[70] w-[260px]">
           {/* Header */}
           <div className="flex items-center justify-between px-4 pt-3 pb-2 border-b border-white/10">
             <span className="text-white text-sm font-bold">{t.autoplay.title}</span>

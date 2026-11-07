@@ -89,9 +89,8 @@ export default function GameTable({
     && myPlayer.hands.every((hand) => hand.cards.length === 0);
 
   return (
-    <div className="flex min-h-[var(--app-height)] flex-col relative overflow-hidden select-none"
+    <div className="game-table-root flex min-h-[var(--app-height)] flex-col relative overflow-hidden select-none"
       style={{
-        height: 'var(--app-height)',
         background: 'radial-gradient(ellipse at 50% 50%, #6b0000 0%, #4a0000 40%, #2a0000 70%, #120000 100%)',
       }}>
 

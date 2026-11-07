@@ -18,8 +18,10 @@ export default function HistoryPanel({ history, bottomOffset }: HistoryPanelProp
       <button
         type="button"
         onClick={() => setHistoryOpen(!historyOpen)}
-        className="fixed z-50 rounded-2xl border border-white/10 bg-black/70 px-3 py-2 text-sm font-bold text-yellow-200/85 backdrop-blur transition-colors hover:bg-black/80"
-        style={{ right: '16px', bottom: `${16 + bottomOffset}px` }}
+        // On phones the bottom-right corner overlaps the bet/action buttons,
+        // so the toggle sits just under the header there instead.
+        className="fixed right-4 z-50 min-h-10 rounded-2xl border border-white/10 bg-black/70 px-3 py-2 text-sm font-bold text-yellow-200/85 backdrop-blur transition-colors hover:bg-black/80 bottom-[var(--history-bottom)] max-sm:bottom-auto max-sm:top-[68px]"
+        style={{ '--history-bottom': `${16 + bottomOffset}px` } as React.CSSProperties}
         aria-expanded={historyOpen}
         aria-haspopup="dialog"
       >
@@ -27,8 +29,8 @@ export default function HistoryPanel({ history, bottomOffset }: HistoryPanelProp
       </button>
       {historyOpen && (
         <div
-          className="panel-surface fixed right-4 z-50 max-h-80 w-72 animate-fade-in overflow-hidden"
-          style={{ bottom: `${56 + bottomOffset}px` }}
+          className="panel-surface fixed right-4 z-50 max-h-80 w-72 max-w-[calc(100vw-32px)] animate-fade-in overflow-hidden bottom-[var(--history-panel-bottom)] max-sm:bottom-auto max-sm:top-[116px]"
+          style={{ '--history-panel-bottom': `${56 + bottomOffset}px` } as React.CSSProperties}
         >
           <div className="p-4 overflow-y-auto max-h-80">
             <div className="flex items-center justify-between mb-3">

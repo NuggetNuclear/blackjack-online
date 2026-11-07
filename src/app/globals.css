@@ -440,7 +440,10 @@ select {
 
 .entry-screen {
   position: relative;
-  min-height: 100vh;
+  /* Fixed height so overflow-y can scroll: body is overflow:hidden for the
+     table, and min-height alone left short/landscape screens unreachable. */
+  height: var(--app-height, 100dvh);
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1393,4 +1396,23 @@ select {
 @media (prefers-reduced-motion: reduce) {
   .lobby__panel, .lpanel, .lalert, .pcard { animation: none !important; }
   .lspinner { animation-duration: 1.6s !important; animation-iteration-count: infinite !important; }
+}
+
+/* ---- Table: short / landscape phones ----
+   The table is sized to the viewport. Below ~500px of height the betting and
+   action controls end up under the fold with no way to reach them, so let the
+   table keep a usable minimum height and scroll the page instead. */
+.game-table-root {
+  height: var(--app-height, 100dvh);
+}
+
+@media (max-height: 500px) {
+  body {
+    overflow-y: auto;
+  }
+
+  .game-table-root {
+    height: auto;
+    min-height: 560px;
+  }
 }
