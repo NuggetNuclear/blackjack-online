@@ -99,6 +99,9 @@ export function useRoomConnection(): UseRoomConnectionReturn {
   const [roomSettings, setRoomSettings] = useState<RoomSettings>(DEFAULT_ROOM_SETTINGS);
 
   const p2pRef = useRef<P2PConnection | null>(null);
+  // Set while a create/join is in flight so a double click or a second tap
+  // cannot open a parallel connection (orphan peer + duplicate seat).
+  const connectingRef = useRef(false);
   const isHostRef = useRef(false);
   const [isHost, setIsHost] = useState(false);
   const gameStateRef = useRef(gameState);
@@ -509,8 +512,11 @@ export function useRoomConnection(): UseRoomConnectionReturn {
 
   const handleCreateRoom = useCallback(async () => {
     if (!playerName.trim()) { setError('Enter your name!'); return; }
+    if (connectingRef.current) return;
+    connectingRef.current = true;
     setError('');
     try {
+      p2pRef.current?.disconnect();
       const p2p = new P2PConnection();
       p2pRef.current = p2p;
       const code = await p2p.createRoom();
@@ -536,15 +542,20 @@ export function useRoomConnection(): UseRoomConnectionReturn {
       setConnectionStatus('Waiting for players...');
     } catch (err) {
       setError(`Failed to create room: ${err}`);
+    } finally {
+      connectingRef.current = false;
     }
   }, [attachPeerListeners, createPlayerState, playerName, roomSettings]);
 
   const handleJoinRoom = useCallback(async (spectator = false) => {
     if (!playerName.trim()) { setError('Enter your name!'); return; }
     if (!inputRoomCode.trim()) { setError('Enter room code!'); return; }
+    if (connectingRef.current) return;
+    connectingRef.current = true;
     setError('');
     setConnectionStatus('Connecting...');
     try {
+      p2pRef.current?.disconnect();
       const p2p = new P2PConnection();
       p2pRef.current = p2p;
       attachPeerListeners(p2p);
@@ -569,6 +580,8 @@ export function useRoomConnection(): UseRoomConnectionReturn {
     } catch (err) {
       setError(`Failed to join: ${err}`);
       setConnectionStatus('');
+    } finally {
+      connectingRef.current = false;
     }
   }, [attachPeerListeners, inputRoomCode, playerName]);
 

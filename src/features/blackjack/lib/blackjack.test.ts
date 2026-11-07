@@ -216,6 +216,18 @@ describe('phase guards', () => {
       assert.equal(playerSurrender(state, 'p1'), state);
     }
   });
+
+  it('ignores player IDs that name Object.prototype members', () => {
+    const state = baseState();
+    for (const id of ['toString', 'constructor', 'valueOf', '__proto__', 'hasOwnProperty']) {
+      assert.equal(playerHit(state, id), state);
+      assert.equal(playerStand(state, id), state);
+      assert.equal(playerDoubleDown(state, id), state);
+      assert.equal(playerSplit(state, id), state);
+      assert.equal(playerSurrender(state, id), state);
+      assert.equal(playerInsure(state, id), state);
+    }
+  });
 });
 
 describe('double down and surrender', () => {

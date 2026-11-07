@@ -326,9 +326,15 @@ export function dealInitialCards(state: GameState): GameState {
   };
 }
 
+/** Own-property lookup: a peer ID like `toString` must not resolve to an
+ *  inherited Object.prototype member and crash the action handlers. */
+function getOwnPlayer(state: GameState, playerId: string) {
+  return Object.hasOwn(state.players, playerId) ? state.players[playerId] : undefined;
+}
+
 export function playerHit(state: GameState, playerId: string): GameState {
   if (state.phase !== 'playing') return state;
-  const player = state.players[playerId];
+  const player = getOwnPlayer(state, playerId);
   if (!player) return state;
   if (player.activeHandIndex >= player.hands.length) return state;
   const hand = player.hands[player.activeHandIndex];
@@ -361,7 +367,7 @@ export function playerHit(state: GameState, playerId: string): GameState {
 
 export function playerStand(state: GameState, playerId: string): GameState {
   if (state.phase !== 'playing') return state;
-  const player = state.players[playerId];
+  const player = getOwnPlayer(state, playerId);
   if (!player) return state;
   if (player.activeHandIndex >= player.hands.length) return state;
   const hand = player.hands[player.activeHandIndex];
@@ -386,7 +392,7 @@ export function playerStand(state: GameState, playerId: string): GameState {
 
 export function playerDoubleDown(state: GameState, playerId: string): GameState {
   if (state.phase !== 'playing') return state;
-  const player = state.players[playerId];
+  const player = getOwnPlayer(state, playerId);
   if (!player) return state;
   const hand = player.hands[player.activeHandIndex];
   if (!hand || !canDoubleDown(hand)) return state;
@@ -441,7 +447,7 @@ export function canSplit(hand: Hand, balance: number, settings: RoomSettings, ha
 
 export function playerSplit(state: GameState, playerId: string): GameState {
   if (state.phase !== 'playing') return state;
-  const player = state.players[playerId];
+  const player = getOwnPlayer(state, playerId);
   if (!player) return state;
   const handIndex = player.activeHandIndex;
   const hand = player.hands[handIndex];
@@ -515,7 +521,7 @@ export function canSurrender(hand: Hand, surrenderEnabled: boolean): boolean {
 
 export function playerSurrender(state: GameState, playerId: string): GameState {
   if (state.phase !== 'playing') return state;
-  const player = state.players[playerId];
+  const player = getOwnPlayer(state, playerId);
   if (!player) return state;
   const hand = player.hands[player.activeHandIndex];
   if (!hand || !canSurrender(hand, state.settings.surrenderEnabled)) return state;
@@ -556,7 +562,7 @@ export function playerInsure(state: GameState, playerId: string): GameState {
   if (!state.settings.insuranceEnabled) return state;
   if (!dealerShowsAce(state)) return state;
 
-  const player = state.players[playerId];
+  const player = getOwnPlayer(state, playerId);
   if (!player) return state;
   // Standard rule: insurance is only offered on the un-acted initial hand —
   // exactly 2 cards, no split yet, no prior insurance.

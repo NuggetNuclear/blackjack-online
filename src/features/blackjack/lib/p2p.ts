@@ -5,15 +5,33 @@
 import Peer, { DataConnection } from 'peerjs';
 import { ROOM_CODE_PATTERN } from '@/features/blackjack/lib/validation';
 
-const ROOM_CODE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+// No 0/O, 1/I/L: codes are read aloud and typed on phones. Old codes using
+// those characters still validate (ROOM_CODE_PATTERN accepts A-Z0-9).
+export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const ROOM_CODE_LENGTH = 6;
+// Largest multiple of the alphabet size that fits in a byte; bytes at or above
+// it are rejected so every character is equally likely (no modulo bias).
+const UNBIASED_LIMIT = 256 - (256 % ROOM_CODE_ALPHABET.length);
 
-function generateRoomCode(): string {
-  // Math.random().toString(36) can occasionally yield fewer than 6 characters;
-  // draw from the CSPRNG and always produce a full-length code.
-  const bytes = new Uint8Array(ROOM_CODE_LENGTH);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => ROOM_CODE_ALPHABET[b % ROOM_CODE_ALPHABET.length]).join('');
+export function generateRoomCode(): string {
+  let code = '';
+  const bytes = new Uint8Array(ROOM_CODE_LENGTH * 2);
+  while (code.length < ROOM_CODE_LENGTH) {
+    crypto.getRandomValues(bytes);
+    for (const b of bytes) {
+      if (b >= UNBIASED_LIMIT) continue;
+      code += ROOM_CODE_ALPHABET[b % ROOM_CODE_ALPHABET.length];
+      if (code.length === ROOM_CODE_LENGTH) break;
+    }
+  }
+  return code;
+}
+
+/** Peer IDs are used as keys of `players` records. An ID equal to an
+ *  Object.prototype member (`toString`, `constructor`, ...) would read an
+ *  inherited value and crash the host, so such peers are refused. */
+export function isSafePeerId(id: unknown): id is string {
+  return typeof id === 'string' && id.length > 0 && !(id in Object.prototype);
 }
 
 type PeerOptions = NonNullable<ConstructorParameters<typeof Peer>[1]>;
@@ -96,7 +114,15 @@ export class P2PConnection {
   }
 
   private handleMessage(msg: GameMessage): void {
-    this.messageHandlers.forEach((handler) => handler(msg));
+    this.messageHandlers.forEach((handler) => {
+      // A malformed message from one peer must not take down the handler
+      // chain (or the host's whole session).
+      try {
+        handler(msg);
+      } catch (err) {
+        console.error('Dropped message that failed to process:', msg.type, err);
+      }
+    });
   }
 
   private handlePeerDisconnect(peerId: string): void {
@@ -108,17 +134,22 @@ export class P2PConnection {
     const finalizeDisconnect = () => {
       if (closed) return;
       closed = true;
-      this.connections.delete(conn.peer);
+      // Only the connection currently registered for this peer counts. When a
+      // peer reconnects, closing its stale connection must not evict the new
+      // one or report the (still connected) player as gone.
+      const isCurrent = this.connections.get(conn.peer) === conn;
+      if (isCurrent) this.connections.delete(conn.peer);
       try {
         conn.close();
       } catch {
         // Connection may already be torn down.
       }
-      this.handlePeerDisconnect(conn.peer);
+      if (isCurrent) this.handlePeerDisconnect(conn.peer);
     };
 
     conn.on('data', (data) => {
       // Never trust senderId coming from payload; bind identity to the transport peer.
+      if (!data || typeof data !== 'object' || typeof (data as GameMessage).type !== 'string') return;
       const incoming = data as GameMessage;
       this.handleMessage({
         ...incoming,
@@ -158,14 +189,25 @@ export class P2PConnection {
       });
 
       this.peer.on('connection', (conn) => {
+        if (!isSafePeerId(conn.peer)) {
+          conn.close();
+          return;
+        }
         conn.on('open', () => {
+          const previous = this.connections.get(conn.peer);
           this.connections.set(conn.peer, conn);
           this.setupConnection(conn);
+          // Same peer opened a second channel (double click, retry): keep the
+          // newest one and drop the stale one without a disconnect event.
+          if (previous && previous !== conn) previous.close();
         });
       });
 
       this.peer.on('error', (err) => {
         console.error('Peer error:', err);
+        // Don't leave a half-open Peer reconnecting to the signaling server.
+        this.peer?.destroy();
+        this.peer = null;
         reject(err);
       });
     });
@@ -210,7 +252,10 @@ export class P2PConnection {
       this.peer.on('open', (id) => {
         if (settled) return;
         this._peerId = id;
-        const conn = this.peer!.connect(`blackjack-${code}`);
+        // reliable: true gives an ordered, reliable SCTP channel. PeerJS's
+        // default is unordered, so a stale game-state snapshot could arrive
+        // after a newer one and roll the table back.
+        const conn = this.peer!.connect(`blackjack-${code}`, { reliable: true });
 
         conn.on('open', () => {
           if (settled) return;

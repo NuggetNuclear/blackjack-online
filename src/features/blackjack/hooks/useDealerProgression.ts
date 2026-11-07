@@ -55,11 +55,13 @@ export function useDealerProgression({
     if (!hasActiveBets(gameState)) return;
 
     if (players.every((p) => p.ready) && !dealingRef.current) {
-      dealingRef.current = true;
+      // Claim the deal only when the timer actually fires. If gameState changes
+      // during the 600ms (someone joins, leaves, disconnects) the cleanup
+      // cancels this timer and the next run reschedules it; claiming it up
+      // front left dealingRef stuck at true and froze the table in betting.
       const timer = setTimeout(() => {
-        // BUG-FIX: Double-check dealingRef inside the callback — prevents the
-        // race where the timeout fires simultaneously with the "all-ready" path.
-        if (gameStateRef.current.phase !== 'betting') return;
+        if (gameStateRef.current.phase !== 'betting' || dealingRef.current) return;
+        dealingRef.current = true;
         sounds.cardDeal();
         syncGameState(dealInitialCards(gameStateRef.current));
       }, 600);
