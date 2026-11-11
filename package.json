@@ -1,6 +1,6 @@
 {
   "name": "blackjack-online",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -13,26 +13,33 @@
     "test:ui": "tsx --test src/tests/*.test.tsx"
   },
   "dependencies": {
-    "next": "^16.4.5",
+    "next": "^16.4.6",
     "peerjs": "^1.5.5",
-    "react": "^19.2.5",
-    "react-dom": "^19.2.5"
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.2.4",
+    "@tailwindcss/postcss": "^4.3.5",
     "@types/jsdom": "^30.0.0",
-    "@types/node": "^25.6.0",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "eslint": "^9.39.4",
-    "eslint-config-next": "^16.4.5",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "eslint": "^10.14.0",
+    "eslint-config-next": "^16.4.6",
     "jsdom": "^31.0.0",
-    "tailwindcss": "^4.2.4",
+    "tailwindcss": "^4.3.5",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3"
   },
   "packageManager": "npm@11.6.2",
   "overrides": {
+    "eslint": {
+      ".": "$eslint",
+      "minimatch": "^11.0.1"
+    },
+    "@eslint/config-array": {
+      "minimatch": "^11.0.1"
+    },
     "postcss": "^8.5.10",
     "@typescript-eslint/typescript-estree": {
       "minimatch": "^11.0.1"
