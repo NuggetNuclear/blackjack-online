@@ -52,23 +52,25 @@ export default function BettingPanel({
   };
 
   return (
-    <div className={`flex w-full max-w-md flex-col items-center gap-2 sm:gap-3 px-2 animate-fade-in ${bettingTimeExpired ? 'opacity-50' : ''}`}>
-      {/* BUG-FIX: Show "Time's Up!" overlay when betting window closes */}
-      {bettingTimeExpired && (
-        <div className="rounded-full border border-red-500/30 bg-red-900/40 px-4 py-1 text-xs sm:text-sm font-bold uppercase tracking-widest text-red-300 animate-bounce-in tabular-nums">
-          {t.betting.closesIn} 0s
-        </div>
-      )}
-
-      {currentBet > 0 && !bettingTimeExpired && (
-        <div className="rounded-full border border-yellow-500/25 bg-black/45 px-3.5 py-1 sm:px-4 sm:py-1.5 text-sm sm:text-lg font-bold text-yellow-300 text-outline-sm animate-bounce-in tabular-nums">
-          {t.betting.bet}: {formatCurrency(currentBet)}
-        </div>
-      )}
+    <div className={`flex w-full max-w-md flex-col items-center gap-1.5 sm:gap-2.5 px-1 sm:px-2 animate-fade-in ${bettingTimeExpired ? 'opacity-50' : ''}`}>
+      {/* Top status slot with reserved height to eliminate vertical layout shift */}
+      <div className="min-h-[26px] sm:min-h-[32px] flex items-center justify-center">
+        {bettingTimeExpired ? (
+          <div className="rounded-full border border-red-500/30 bg-red-900/40 px-3 py-0.5 text-[11px] sm:text-xs font-bold uppercase tracking-widest text-red-300 animate-bounce-in tabular-nums">
+            {t.betting.closesIn} 0s
+          </div>
+        ) : currentBet > 0 ? (
+          <div className="rounded-full border border-yellow-500/25 bg-black/45 px-3 py-0.5 sm:px-4 sm:py-1 text-xs sm:text-base font-bold text-yellow-300 text-outline-sm tabular-nums">
+            {t.betting.bet}: {formatCurrency(currentBet)}
+          </div>
+        ) : (
+          <span className="text-[11px] sm:text-xs font-semibold text-white/50">{t.game.betting}</span>
+        )}
+      </div>
 
       <div className="flex max-w-full items-start justify-center gap-1.5 sm:gap-2.5">
         {CHIP_VALUES.map((value, i) => (
-          <div key={value} className="flex flex-col items-center gap-1.5">
+          <div key={value} className="flex flex-col items-center gap-1">
             <Chip
               value={value}
               onClick={() => addChip(value)}
@@ -77,21 +79,23 @@ export default function BettingPanel({
               animated={true}
               animIndex={i}
             />
-            {currentBet >= value && (
-              <button
-                type="button"
-                onClick={() => removeChip(value)}
-                className="min-h-[26px] rounded-full border border-red-400/35 bg-black/60 px-2 py-0.5 text-[10px] font-bold text-red-200 hover:bg-red-950/70 transition-colors"
-                disabled={isLocked}
-              >
-                -{value >= 1000 ? `${value / 1000}K` : value}
-              </button>
-            )}
+            <div className="h-[22px] sm:h-[26px] flex items-center justify-center">
+              {currentBet >= value && (
+                <button
+                  type="button"
+                  onClick={() => removeChip(value)}
+                  className="min-h-[20px] sm:min-h-[24px] rounded-full border border-red-400/35 bg-black/60 px-1.5 sm:px-2 py-0.5 text-[9px] sm:text-[10px] font-bold text-red-200 hover:bg-red-950/70 transition-colors tabular-nums"
+                  disabled={isLocked}
+                >
+                  -{value >= 1000 ? `${value / 1000}K` : value}
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </div>
 
-      <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
+      <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-3">
         <button
           type="button"
           onClick={() => {
@@ -103,7 +107,7 @@ export default function BettingPanel({
             }
           }}
           disabled={isLocked || balance <= 0}
-          className="btn-cartoon min-h-[42px] sm:min-h-[46px] px-4 sm:px-6 py-2 bg-red-600 hover:bg-red-500 disabled:bg-gray-600
+          className="btn-cartoon min-h-[38px] sm:min-h-[46px] px-3.5 sm:px-6 py-1.5 sm:py-2 bg-red-600 hover:bg-red-500 disabled:bg-gray-600
             text-white text-xs sm:text-sm border-red-800"
         >
           {t.betting.allIn}
@@ -120,7 +124,7 @@ export default function BettingPanel({
             }
           }}
           disabled={isLocked || currentBet <= 0}
-          className="btn-cartoon min-h-[42px] sm:min-h-[46px] px-5 sm:px-7 py-2 bg-yellow-400 hover:bg-yellow-300 disabled:bg-gray-600
+          className="btn-cartoon min-h-[38px] sm:min-h-[46px] px-4 sm:px-7 py-1.5 sm:py-2 bg-yellow-400 hover:bg-yellow-300 disabled:bg-gray-600
             text-gray-950 text-xs sm:text-sm border-yellow-700"
         >
           {t.betting.deal}
@@ -131,7 +135,7 @@ export default function BettingPanel({
             type="button"
             onClick={() => { if (!isLocked) onBetChange(0); }}
             disabled={isLocked}
-            className="btn-cartoon min-h-[42px] sm:min-h-[46px] px-3.5 sm:px-4 py-2 bg-[#14502a] hover:bg-[#1c6833]
+            className="btn-cartoon min-h-[38px] sm:min-h-[46px] px-3 sm:px-4 py-1.5 sm:py-2 bg-[#14502a] hover:bg-[#1c6833]
               text-white/90 text-xs border-[#082712]"
           >
             {t.betting.clear}

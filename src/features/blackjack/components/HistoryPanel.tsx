@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { BetRecord } from '@/features/blackjack/lib/history';
 import { formatCurrency } from '@/shared/lib/format';
 import { useLanguage } from '@/shared/i18n/useLanguage';
+import { useIsMobile } from '@/shared/hooks/useIsMobile';
 
 interface HistoryPanelProps {
   history: BetRecord[];
@@ -11,6 +12,7 @@ interface HistoryPanelProps {
 }
 
 export default function HistoryPanel({ history, bottomOffset }: HistoryPanelProps) {
+  const isMobile = useIsMobile();
   const [historyOpen, setHistoryOpen] = useState(false);
   const { t } = useLanguage();
 
@@ -28,8 +30,8 @@ export default function HistoryPanel({ history, bottomOffset }: HistoryPanelProp
       <button
         type="button"
         onClick={() => setHistoryOpen(!historyOpen)}
-        className="fixed right-2.5 sm:right-4 z-30 rounded-full border border-[#416e4e]/70 bg-[#082015]/88 px-2.5 py-1.5 sm:px-3 sm:py-2 text-[10px] sm:text-xs font-bold text-[#ead79c] backdrop-blur-md transition-colors hover:bg-[#113d24] shadow-md"
-        style={{ bottom: `${10 + bottomOffset}px` }}
+        className={`fixed right-3 sm:right-4 z-30 rounded-full border border-[#416e4e]/70 bg-[#082015]/88 px-2.5 py-1 sm:px-3 sm:py-2 text-[10px] sm:text-xs font-bold text-[#ead79c] backdrop-blur-md transition-colors hover:bg-[#113d24] shadow-md whitespace-nowrap ${isMobile ? 'top-[56px]' : 'top-[56px] sm:top-auto'}`}
+        style={isMobile ? undefined : { bottom: `${10 + bottomOffset}px` }}
         aria-expanded={historyOpen}
       >
         {t.history.title}
@@ -47,12 +49,12 @@ export default function HistoryPanel({ history, bottomOffset }: HistoryPanelProp
             aria-hidden="true"
           />
           <div
-            className="panel-surface fixed right-2.5 sm:right-4 z-50 max-h-80 w-[min(92vw,310px)] animate-fade-in overflow-hidden shadow-2xl"
-            style={{ bottom: `${46 + bottomOffset}px` }}
+            className={`panel-surface fixed z-50 w-[min(92vw,310px)] animate-fade-in overflow-hidden shadow-2xl ${isMobile ? 'top-[90px] right-2.5 max-h-[min(65dvh,300px)]' : 'right-2.5 sm:right-4 max-h-80'}`}
+            style={isMobile ? undefined : { bottom: `${46 + bottomOffset}px` }}
             role="dialog"
             aria-label={t.history.title}
           >
-            <div className="p-3.5 sm:p-4 overflow-y-auto max-h-80">
+            <div className={`p-3.5 sm:p-4 overflow-y-auto ${isMobile ? 'max-h-[min(65dvh,300px)]' : 'max-h-80'}`}>
               <div className="flex items-center justify-between mb-2.5 border-b border-white/10 pb-2">
                 <span className="text-[#ead79c] text-xs sm:text-sm font-bold uppercase tracking-wider">
                   {t.history.title}

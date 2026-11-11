@@ -43,7 +43,7 @@ export default function AutoplayPanel({ config, onChange }: AutoplayPanelProps) 
         type="button"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        className={`btn-cartoon min-h-[36px] px-2.5 sm:px-3 py-1 text-[11px] sm:text-xs transition-all flex items-center gap-1.5
+        className={`btn-cartoon min-h-[34px] sm:min-h-[36px] px-2 sm:px-3 py-0.5 sm:py-1 text-[11px] sm:text-xs transition-all flex items-center gap-1.5 whitespace-nowrap
           ${config.enabled
             ? 'bg-yellow-400 text-gray-950 border-yellow-700'
             : 'bg-[#14502a] text-white/90 border-[#082712] hover:bg-[#1c6833]'
@@ -59,7 +59,7 @@ export default function AutoplayPanel({ config, onChange }: AutoplayPanelProps) 
             aria-hidden="true"
             onClick={() => setOpen(false)}
           />
-          <div className="panel-surface fixed inset-x-3 top-14 mx-auto z-[70] w-[min(92vw,280px)] animate-fade-in sm:absolute sm:inset-x-auto sm:top-full sm:right-0 sm:mt-2 sm:w-[270px]">
+          <div className="panel-surface fixed inset-x-3 top-14 mx-auto z-[70] w-[min(92vw,280px)] max-h-[calc(var(--app-height,100dvh)-4rem)] overflow-y-auto animate-fade-in sm:absolute sm:inset-x-auto sm:top-full sm:right-0 sm:mt-2 sm:w-[270px]">
             {/* Header */}
             <div className="flex items-center justify-between px-4 pt-3.5 pb-2.5 border-b border-white/10">
               <span className="text-yellow-200 text-sm font-bold">{t.autoplay.title}</span>

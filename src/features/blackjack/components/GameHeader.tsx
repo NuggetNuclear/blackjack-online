@@ -6,6 +6,7 @@ import CasinoBrand from '@/features/blackjack/components/CasinoBrand';
 import LanguageToggle from '@/features/blackjack/components/LanguageToggle';
 import type { AutoplayConfig } from '@/features/blackjack/types/autoplay';
 import { useLanguage } from '@/shared/i18n/useLanguage';
+import { useIsMobile } from '@/shared/hooks/useIsMobile';
 import { formatCurrency } from '@/shared/lib/format';
 
 const BOTTOM_OFFSET_OPTIONS = [0, 16, 32] as const;
@@ -43,6 +44,7 @@ export default function GameHeader({
   onSwitchToSpectator,
   onExitRoom,
 }: GameHeaderProps) {
+  const isMobile = useIsMobile();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const { t, language, setLanguage } = useLanguage();
   const bottomOffsetLabels = [t.header.edgeOff, t.header.edgeMid, t.header.edgeHigh] as const;
@@ -60,7 +62,7 @@ export default function GameHeader({
   return (
     <header className="casino-game-header relative z-40 shrink-0 overflow-visible border-b-4 border-[#070f20] bg-[#0f172a] shadow-xl">
       {/* Desktop / Tablet Bar (>= 640px) */}
-      <div className="hidden items-center justify-between gap-4 px-4 py-2.5 sm:flex">
+      <div className={`${isMobile ? 'hidden' : 'hidden sm:flex'} items-center justify-between gap-3 px-4 py-2`}>
         <div className="flex items-center gap-2.5">
           <CasinoBrand compact />
           <span className="rounded-full border border-white/12 bg-white/8 px-3 py-1 text-[11px] font-semibold text-white/80">
@@ -128,15 +130,15 @@ export default function GameHeader({
         </div>
       </div>
 
-      {/* Mobile Compact Bar (< 640px) — 40px+ ergonomic touch targets, zero clutter */}
-      <div className="flex items-center justify-between gap-2 px-3 py-1.5 sm:hidden">
-        <div className="flex min-w-0 items-center gap-2">
+      {/* Mobile Compact Bar (< 640px) */}
+      <div className={`${isMobile ? 'flex' : 'flex sm:hidden'} items-center justify-between gap-1.5 px-2.5 py-1.5`}>
+        <div className="flex min-w-0 items-center gap-1.5">
           <CasinoBrand compact />
           {roomCode && (
             <button
               type="button"
               onClick={onCopyLink}
-              className="btn-cartoon min-h-[36px] shrink-0 border-[#082712] bg-[#14502a] px-2.5 py-1 text-[11px] font-bold text-yellow-200 tabular-nums"
+              className="btn-cartoon min-h-[34px] shrink-0 border-[#082712] bg-[#14502a] px-2 py-0.5 text-[11px] font-bold text-yellow-200 tabular-nums whitespace-nowrap"
               title="Copy invite link"
             >
               {copied ? t.header.copied : roomCode}
@@ -144,13 +146,13 @@ export default function GameHeader({
           )}
         </div>
 
-        <div className="flex items-center gap-1.5 shrink-0">
+        <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
           {!isSpectator ? (
-            <div className="rounded-full border border-[#416e4e] bg-[#0c321f] px-2.5 py-1 text-xs font-bold text-yellow-300 tabular-nums">
+            <div className="rounded-full border border-[#416e4e] bg-[#0c321f] px-2 py-0.5 text-[11px] font-bold text-yellow-300 tabular-nums whitespace-nowrap">
               {formatCurrency(balance)}
             </div>
           ) : (
-            <span className="rounded-full border border-amber-400/30 bg-amber-500/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-200">
+            <span className="rounded-full border border-amber-400/30 bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-200 whitespace-nowrap">
               {t.header.spectating}
             </span>
           )}
@@ -160,7 +162,7 @@ export default function GameHeader({
           <button
             type="button"
             onClick={() => setSettingsOpen((open) => !open)}
-            className="btn-cartoon min-h-[36px] border-white/15 bg-white/10 px-2.5 py-1 text-[11px] text-white"
+            className="btn-cartoon min-h-[34px] border-white/15 bg-white/10 px-2 py-0.5 text-[11px] text-white whitespace-nowrap"
             title={t.header.settings}
             aria-expanded={settingsOpen}
           >
@@ -170,7 +172,7 @@ export default function GameHeader({
           <button
             type="button"
             onClick={onExitRoom}
-            className="btn-cartoon min-h-[36px] border-rose-950 bg-rose-800 px-2.5 py-1 text-[11px] text-rose-50"
+            className="btn-cartoon min-h-[34px] border-rose-950 bg-rose-800 px-2 py-0.5 text-[11px] text-rose-50 whitespace-nowrap"
             title="Leave room"
           >
             {t.header.exit}
@@ -186,7 +188,7 @@ export default function GameHeader({
             aria-hidden="true"
             onClick={() => setSettingsOpen(false)}
           />
-          <div className="panel-surface fixed right-3 top-14 z-[70] w-[min(90vw,260px)] animate-fade-in p-4 sm:absolute sm:right-4 sm:top-full sm:mt-2">
+          <div className="panel-surface fixed right-3 top-14 z-[70] w-[min(90vw,260px)] max-h-[calc(var(--app-height,100dvh)-4rem)] overflow-y-auto animate-fade-in p-4 sm:absolute sm:right-4 sm:top-full sm:mt-2">
             <div className="mb-3 flex items-center justify-between border-b border-white/10 pb-2">
               <span className="text-sm font-bold text-yellow-200">{t.header.settings}</span>
               <span className="text-[11px] text-white/70 truncate max-w-[130px]">
@@ -207,7 +209,7 @@ export default function GameHeader({
                 </button>
               </label>
 
-              <div className="flex items-center justify-between gap-3 sm:hidden">
+              <div className={`${isMobile ? 'flex' : 'flex sm:hidden'} items-center justify-between gap-3`}>
                 <span className="text-xs font-semibold text-white/90">EN / ES</span>
                 <LanguageToggle
                   language={language}
@@ -223,7 +225,7 @@ export default function GameHeader({
                     setSettingsOpen(false);
                     onSwitchToSpectator();
                   }}
-                  className="btn-cartoon min-h-[38px] w-full border-[#082712] bg-[#14502a] py-1.5 text-xs text-white hover:bg-[#1c6833] sm:hidden"
+                  className={`btn-cartoon min-h-[38px] w-full border-[#082712] bg-[#14502a] py-1.5 text-xs text-white hover:bg-[#1c6833] ${isMobile ? '' : 'sm:hidden'}`}
                 >
                   {t.header.spectate}
                 </button>

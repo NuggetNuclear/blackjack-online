@@ -5,6 +5,7 @@ import { GameState, PlayerState } from '@/features/blackjack/lib/blackjack';
 import HandDisplay from '@/features/blackjack/components/HandDisplay';
 import { useLanguage } from '@/shared/i18n/useLanguage';
 import { formatCurrency } from '@/shared/lib/format';
+import { useIsMobile } from '@/shared/hooks/useIsMobile';
 
 /** Returns true if this hand is still actionable (not resolved). */
 function isHandActionable(hand: { stood: boolean; busted: boolean; blackjack: boolean; surrendered: boolean }): boolean {
@@ -24,20 +25,22 @@ function SeatContent({
   gameState,
   currentBet,
   compact = false,
+  isMobile = false,
 }: {
   player: PlayerState;
   isMe: boolean;
   gameState: GameState;
   currentBet?: number;
   compact?: boolean;
+  isMobile?: boolean;
 }) {
   const { t } = useLanguage();
   const joiningNextRound = gameState.phase !== 'betting' && player.hands.every((hand) => hand.cards.length === 0);
   const isSplit = player.hands.length > 1;
 
   return (
-    <div className={`flex flex-col items-center ${compact ? 'rounded-2xl border border-white/12 bg-black/35 px-2.5 py-1.5 backdrop-blur-xs' : ''}`}>
-      <div className={`flex flex-wrap items-end justify-center ${isSplit ? 'gap-2 sm:gap-3.5' : 'gap-2'}`}>
+    <div className={`flex flex-col items-center ${compact ? 'rounded-2xl border border-white/12 bg-black/35 px-2 py-1 backdrop-blur-xs' : ''}`}>
+      <div className={`flex items-end justify-center ${isSplit ? (isMobile ? 'flex-nowrap gap-1.5 overflow-x-auto max-w-full px-1 no-scrollbar' : 'flex-wrap gap-2 sm:gap-3.5') : 'gap-2'}`}>
         {player.hands.map((hand, handIdx) => {
           const isThisHandActive = gameState.phase === 'playing' && handIdx === player.activeHandIndex && isHandActionable(hand);
           const displayHand = { ...hand };
@@ -69,7 +72,7 @@ function SeatContent({
                   hand={displayHand}
                   label={handIdx === 0 ? player.name : `#${handIdx + 1}`}
                   isCurrentPlayer={isMe}
-                  forceSmall={compact || (isSplit && player.hands.length >= 3)}
+                  forceSmall={compact || (isSplit && (isMobile || player.hands.length >= 3))}
                   result={gameState.phase === 'results' ? (displayHand.result ?? undefined) : undefined}
                   payout={gameState.phase === 'results' ? (displayHand.payout ?? undefined) : undefined}
                   showValue={gameState.phase !== 'betting'}
@@ -95,6 +98,7 @@ function SeatContent({
 }
 
 function PlayerSeats({ gameState, myId, seatLift, currentBet }: PlayerSeatsProps) {
+  const isMobile = useIsMobile();
   const allPlayers = useMemo(() => Object.values(gameState.players), [gameState.players]);
   const myPlayer = gameState.players[myId];
   const otherPlayers = useMemo(
@@ -124,19 +128,22 @@ function PlayerSeats({ gameState, myId, seatLift, currentBet }: PlayerSeatsProps
   return (
     <div className="relative flex-1 min-h-0 flex flex-col justify-center">
       {/* Mobile / Compact Layout (< 768px): Dedicated peer row + centered active player */}
-      <div className="flex flex-1 flex-col justify-between gap-2 px-2 py-1 md:hidden">
+      <div className={`${isMobile ? 'flex' : 'flex md:hidden'} flex-1 min-h-0 flex-col justify-between gap-1 px-2 py-0.5`}>
         {otherPlayers.length > 0 && (
-          <div className="flex items-start justify-center gap-2 overflow-x-auto py-1 no-scrollbar">
-            {otherPlayers.map((player) => (
-              <div key={player.id} className="shrink-0">
-                <SeatContent
-                  player={player}
-                  isMe={false}
-                  gameState={gameState}
-                  compact
-                />
-              </div>
-            ))}
+          <div className="w-full overflow-x-auto py-0.5 no-scrollbar">
+            <div className="mx-auto flex w-max items-start gap-2 px-1">
+              {otherPlayers.map((player) => (
+                <div key={player.id} className="shrink-0">
+                  <SeatContent
+                    player={player}
+                    isMe={false}
+                    gameState={gameState}
+                    compact
+                    isMobile={isMobile}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
@@ -147,6 +154,7 @@ function PlayerSeats({ gameState, myId, seatLift, currentBet }: PlayerSeatsProps
               isMe
               gameState={gameState}
               currentBet={currentBet}
+              isMobile={isMobile}
             />
           ) : (
             otherPlayers.length === 0 && null
@@ -155,7 +163,7 @@ function PlayerSeats({ gameState, myId, seatLift, currentBet }: PlayerSeatsProps
       </div>
 
       {/* Desktop Casino Arc Layout (>= 768px) */}
-      <div className="hidden md:block absolute inset-0">
+      <div className={isMobile ? 'hidden' : 'hidden md:block absolute inset-0'}>
         {allPlayers.map((player, idx) => {
           const pos = seatPositions[idx];
           if (!pos) return null;
@@ -176,6 +184,7 @@ function PlayerSeats({ gameState, myId, seatLift, currentBet }: PlayerSeatsProps
                 isMe={isMe}
                 gameState={gameState}
                 currentBet={currentBet}
+                isMobile={isMobile}
               />
             </div>
           );

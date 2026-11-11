@@ -31,27 +31,27 @@ export default function InsurancePrompt({
   if (insurancePromptDismissed) return null;
 
   return (
-    <div className="relative z-40 flex justify-center px-3 animate-fade-in">
-      <div className="panel-surface flex w-full max-w-xs sm:max-w-sm flex-col items-center gap-2.5 border-2 border-yellow-500/70 px-4 py-3 shadow-2xl">
+    <div className="relative z-40 flex w-full justify-center px-2 animate-fade-in">
+      <div className="panel-surface flex w-full max-w-[280px] sm:max-w-sm flex-col items-center gap-1.5 sm:gap-2.5 border-2 border-yellow-500/70 px-3 py-2 sm:px-4 sm:py-3 shadow-2xl">
         <div className="text-yellow-300 font-bold text-center">
-          <p className="text-sm sm:text-base uppercase tracking-wider text-outline-sm">{t.game.insurancePrompt}</p>
-          <p className="text-xs sm:text-sm text-white/85 tabular-nums">
+          <p className="text-xs sm:text-base uppercase tracking-wider text-outline-sm">{t.game.insurancePrompt}</p>
+          <p className="text-[11px] sm:text-sm text-white/85 tabular-nums">
             {t.game.insuranceCost}{formatCurrency(Math.floor(firstHand.bet / 2))}
           </p>
         </div>
-        <div className="flex w-full gap-2.5">
+        <div className="flex w-full gap-2 sm:gap-2.5">
           <button
             type="button"
             onClick={onInsure}
             disabled={balance < Math.floor(firstHand.bet / 2)}
-            className="btn-cartoon min-h-[40px] flex-1 px-4 py-2 bg-yellow-400 hover:bg-yellow-300 text-gray-950 font-bold text-xs sm:text-sm border-yellow-700 disabled:opacity-50"
+            className="btn-cartoon min-h-[36px] sm:min-h-[40px] flex-1 px-3 py-1.5 sm:px-4 sm:py-2 bg-yellow-400 hover:bg-yellow-300 text-gray-950 font-bold text-xs sm:text-sm border-yellow-700 disabled:opacity-50"
           >
             {t.game.buyInsurance}
           </button>
           <button
             type="button"
             onClick={onDecline}
-            className="btn-cartoon min-h-[40px] flex-1 px-4 py-2 bg-[#14502a] hover:bg-[#1c6833] text-white font-bold text-xs sm:text-sm border-[#082712]"
+            className="btn-cartoon min-h-[36px] sm:min-h-[40px] flex-1 px-3 py-1.5 sm:px-4 sm:py-2 bg-[#14502a] hover:bg-[#1c6833] text-white font-bold text-xs sm:text-sm border-[#082712]"
           >
             {t.game.decline}
           </button>

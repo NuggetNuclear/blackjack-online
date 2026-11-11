@@ -52,7 +52,7 @@ export default function BottomControls({
 
   return (
     <div
-      className="relative z-30 flex flex-col items-center gap-2 sm:gap-2.5 px-2 pb-[max(12px,env(safe-area-inset-bottom))]"
+      className="relative z-30 flex w-full max-w-md mx-auto flex-col items-center gap-1.5 sm:gap-2.5 px-2 pb-[max(8px,env(safe-area-inset-bottom))]"
       style={{ marginBottom: `${bottomOffset}px` }}
     >
       {/* Spectator CTA docked cleanly at the bottom instead of covering the table center */}
@@ -69,7 +69,7 @@ export default function BottomControls({
       {/* Betting countdown with visual ring */}
       {gameState.phase === 'betting' && (
         <RoundTimerFrame progress={bettingProgress}>
-          <div className={`rounded-full px-4 py-1.5 text-[11px] sm:text-xs font-bold uppercase tracking-[0.18em] text-white shadow-xl tabular-nums ${
+          <div className={`rounded-full px-3.5 py-1 sm:px-4 sm:py-1.5 text-[10px] sm:text-xs font-bold uppercase tracking-[0.15em] sm:tracking-[0.18em] text-white shadow-xl tabular-nums whitespace-nowrap ${
             bettingTimeExpired
               ? 'bg-red-600 border-b-[3px] border-red-800'
               : 'bg-[#1c6833] border-b-[3px] border-[#082712]'
@@ -134,7 +134,7 @@ export default function BottomControls({
               <button
                 type="button"
                 onClick={onNewRound}
-                className="btn-cartoon min-h-[44px] px-7 sm:px-10 py-2.5 sm:py-3 bg-yellow-400 hover:bg-yellow-300 text-gray-950 text-sm sm:text-base border-yellow-700"
+                className="btn-cartoon min-h-[40px] sm:min-h-[44px] px-6 sm:px-10 py-2 sm:py-3 bg-yellow-400 hover:bg-yellow-300 text-gray-950 text-xs sm:text-base border-yellow-700"
               >
                 {t.controls.newRound}
               </button>

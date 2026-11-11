@@ -44,12 +44,12 @@ export default function ActionButtons({
   const doubleDisabled = isActionBlocked || !canDoubleDown;
 
   return (
-    <div className="flex max-w-full flex-wrap justify-center gap-2 sm:gap-3 px-2 animate-fade-in">
+    <div className="flex max-w-full flex-wrap justify-center gap-1.5 sm:gap-2.5 px-1 sm:px-2 animate-fade-in">
       <button
         type="button"
         onClick={() => triggerAction(() => { sounds.hit(); onHit(); })}
         disabled={isActionBlocked}
-        className="btn-cartoon min-h-[42px] sm:min-h-[48px] px-5 sm:px-7 py-2 sm:py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-600
+        className="btn-cartoon min-h-[38px] sm:min-h-[48px] px-4 sm:px-7 py-1.5 sm:py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-600
           text-white text-xs sm:text-base border-emerald-800"
       >
         {t.common.hit}
@@ -59,7 +59,7 @@ export default function ActionButtons({
         type="button"
         onClick={() => triggerAction(() => { sounds.stand(); onStand(); })}
         disabled={isActionBlocked}
-        className="btn-cartoon min-h-[42px] sm:min-h-[48px] px-5 sm:px-7 py-2 sm:py-3 bg-red-600 hover:bg-red-500 disabled:bg-gray-600
+        className="btn-cartoon min-h-[38px] sm:min-h-[48px] px-4 sm:px-7 py-1.5 sm:py-3 bg-red-600 hover:bg-red-500 disabled:bg-gray-600
           text-white text-xs sm:text-base border-red-800"
       >
         {t.common.stand}
@@ -70,7 +70,7 @@ export default function ActionButtons({
         onClick={() => triggerAction(() => { sounds.hit(); onDoubleDown(); })}
         disabled={doubleDisabled}
         aria-disabled={doubleDisabled}
-        className={`btn-cartoon min-h-[42px] sm:min-h-[48px] px-4 sm:px-5 py-2 sm:py-3 text-xs sm:text-base ${
+        className={`btn-cartoon min-h-[38px] sm:min-h-[48px] px-3 sm:px-5 py-1.5 sm:py-3 text-xs sm:text-base ${
           doubleDisabled
             ? 'border-gray-800 bg-gray-700 text-white/50'
             : 'border-amber-700 bg-yellow-400 text-gray-950 hover:bg-yellow-300'
@@ -84,7 +84,7 @@ export default function ActionButtons({
           type="button"
           onClick={() => triggerAction(() => { sounds.hit(); onSplit(); })}
           disabled={isActionBlocked}
-          className="btn-cartoon min-h-[42px] sm:min-h-[48px] px-4 sm:px-5 py-2 sm:py-3 bg-[#1c6833] hover:bg-[#23753a] disabled:bg-gray-600
+          className="btn-cartoon min-h-[38px] sm:min-h-[48px] px-3 sm:px-5 py-1.5 sm:py-3 bg-[#1c6833] hover:bg-[#23753a] disabled:bg-gray-600
             text-white text-xs sm:text-base border-[#082712]"
         >
           {t.common.split}
@@ -96,7 +96,7 @@ export default function ActionButtons({
           type="button"
           onClick={() => triggerAction(() => { sounds.stand(); onSurrender(); })}
           disabled={isActionBlocked}
-          className="btn-cartoon min-h-[42px] sm:min-h-[48px] px-4 sm:px-5 py-2 sm:py-3 bg-amber-700 hover:bg-amber-600 disabled:bg-gray-600
+          className="btn-cartoon min-h-[38px] sm:min-h-[48px] px-3 sm:px-5 py-1.5 sm:py-3 bg-amber-700 hover:bg-amber-600 disabled:bg-gray-600
             text-white text-xs sm:text-base border-amber-900"
         >
           {t.common.surrender}

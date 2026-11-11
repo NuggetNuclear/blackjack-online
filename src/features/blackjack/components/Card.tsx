@@ -2,6 +2,7 @@
 
 import { memo, useLayoutEffect, useRef } from 'react';
 import { type Card as CardType, suitSymbol, suitColor } from '@/features/blackjack/lib/blackjack';
+import { useIsMobile } from '@/shared/hooks/useIsMobile';
 
 interface CardProps {
   card: CardType;
@@ -14,9 +15,17 @@ interface CardProps {
 function Card({ card, index = 0, small = false, animated = true, animationType = 'slide' }: CardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const animatedOnceRef = useRef(false);
-  const w = small ? 'w-11 h-[62px] sm:w-13 sm:h-[72px]' : 'w-[58px] h-[82px] sm:w-[76px] sm:h-[106px]';
-  const textSize = small ? 'text-[10px] sm:text-[11px]' : 'text-xs sm:text-base';
-  const overlapClass = index > 0 ? (small ? '-ml-3 sm:-ml-2.5' : '-ml-4 sm:-ml-3.5') : '';
+  const isMobile = useIsMobile();
+  const w = isMobile
+    ? (small ? 'w-10 h-[56px]' : 'w-[50px] h-[70px]')
+    : (small ? 'w-10 h-[56px] sm:w-13 sm:h-[72px]' : 'w-[50px] h-[70px] sm:w-[76px] sm:h-[106px]');
+  const textSize = isMobile
+    ? (small ? 'text-[9px]' : 'text-[11px]')
+    : (small ? 'text-[9px] sm:text-[11px]' : 'text-[11px] sm:text-base');
+  const overlapClass = index > 0
+    ? (isMobile ? (small ? '-ml-3' : '-ml-3.5') : (small ? '-ml-3 sm:-ml-2.5' : '-ml-3.5 sm:-ml-3.5'))
+    : '';
+  const borderClass = isMobile ? 'border-[2.5px]' : 'border-[2.5px] sm:border-[3px]';
   
   useLayoutEffect(() => {
     if (!animated || !cardRef.current || animationType !== 'slide') return;
@@ -59,7 +68,7 @@ function Card({ card, index = 0, small = false, animated = true, animationType =
     return (
       <div
         ref={cardRef}
-        className={`${w} ${overlapClass} rounded-xl border-[2.5px] sm:border-[3px] border-red-800 shadow-xl flex items-center justify-center relative shrink-0 overflow-hidden ${animClass}`}
+        className={`${w} ${overlapClass} rounded-xl ${borderClass} border-red-800 shadow-xl flex items-center justify-center relative shrink-0 overflow-hidden ${animClass}`}
         style={{
           background: '#8B0000',
           zIndex: index,
@@ -74,10 +83,10 @@ function Card({ card, index = 0, small = false, animated = true, animationType =
           backgroundSize: small ? '10px 10px' : '14px 14px',
         }} />
         {/* Inner border frame */}
-        <div className={`absolute ${small ? 'inset-[3px]' : 'inset-[4px] sm:inset-[6px]'} border-[1.5px] sm:border-[2px] border-yellow-400/25 rounded-lg`} />
+        <div className={`absolute ${small ? 'inset-[3px]' : (isMobile ? 'inset-[4px]' : 'inset-[4px] sm:inset-[6px]')} border-[1.5px] ${isMobile ? '' : 'sm:border-[2px]'} border-yellow-400/25 rounded-lg`} />
         {/* Center emblem */}
         <div className="relative z-10 flex items-center justify-center">
-          <span className={`${small ? 'text-base' : 'text-xl sm:text-3xl'} text-yellow-400/40 font-bold`}>♠</span>
+          <span className={`${small ? 'text-base' : (isMobile ? 'text-xl' : 'text-xl sm:text-3xl')} text-yellow-400/40 font-bold`}>♠</span>
         </div>
       </div>
     );
@@ -90,7 +99,7 @@ function Card({ card, index = 0, small = false, animated = true, animationType =
   return (
     <div
       ref={cardRef}
-      className={`${w} ${overlapClass} bg-white rounded-xl border-[2.5px] sm:border-[3px] flex flex-col justify-between relative select-none shrink-0 ${animClass}`}
+      className={`${w} ${overlapClass} bg-white rounded-xl ${borderClass} flex flex-col justify-between relative select-none shrink-0 ${animClass}`}
       style={{
         zIndex: index,
         padding: small ? '3px' : '4px 5px',
@@ -102,9 +111,9 @@ function Card({ card, index = 0, small = false, animated = true, animationType =
     >
       <div className={`${textSize} font-bold leading-none`} style={{ color: cornerColor }}>
         {card.rank}
-        <span className={`block ${small ? 'text-[8px] sm:text-[9px]' : 'text-[10px] sm:text-xs'}`}>{symbol}</span>
+        <span className={`block ${small ? (isMobile ? 'text-[8px]' : 'text-[8px] sm:text-[9px]') : (isMobile ? 'text-[10px]' : 'text-[10px] sm:text-xs')}`}>{symbol}</span>
       </div>
-      <div className={`${small ? 'text-lg sm:text-xl' : 'text-xl sm:text-3xl'} text-center leading-none`} style={{ color }}>
+      <div className={`${small ? (isMobile ? 'text-lg' : 'text-lg sm:text-xl') : (isMobile ? 'text-xl' : 'text-xl sm:text-3xl')} text-center leading-none`} style={{ color }}>
         {symbol}
       </div>
       <div
@@ -112,7 +121,7 @@ function Card({ card, index = 0, small = false, animated = true, animationType =
         style={{ color: cornerColor }}
       >
         {card.rank}
-        <span className={`block ${small ? 'text-[8px] sm:text-[9px]' : 'text-[10px] sm:text-xs'}`}>{symbol}</span>
+        <span className={`block ${small ? (isMobile ? 'text-[8px]' : 'text-[8px] sm:text-[9px]') : (isMobile ? 'text-[10px]' : 'text-[10px] sm:text-xs')}`}>{symbol}</span>
       </div>
     </div>
   );

@@ -86,6 +86,7 @@ function GameTable({
   const { t } = useLanguage();
   const bottomOffset = BOTTOM_OFFSET_OPTIONS[bottomOffsetIndex];
   const seatLift = Math.min(bottomOffset / 10, 8);
+  const hasMultiplePlayers = Object.keys(gameState.players).length > 1;
   const waitingForNextRound = !!myPlayer
     && gameState.phase !== 'betting'
     && myPlayer.hands.every((hand) => hand.cards.length === 0);
@@ -113,7 +114,10 @@ function GameTable({
           bottom: `${24 + bottomOffset + 16}px`,
         }}
       >
-        <div className="absolute inset-x-4 flex flex-col items-center gap-0.5 text-center" style={{ top: '34%' }}>
+        <div
+          className={`${hasMultiplePlayers ? 'hidden sm:flex' : 'flex'} absolute inset-x-4 flex-col items-center gap-0.5 text-center`}
+          style={{ top: '30%' }}
+        >
           <div className="text-yellow-400/[0.15] text-[8px] sm:text-xs font-bold tracking-[0.12em] sm:tracking-[0.3em] uppercase whitespace-nowrap">
             ♠ {t.table.blackjackPays} ♠
           </div>
@@ -156,8 +160,8 @@ function GameTable({
       <HistoryPanel history={history} bottomOffset={bottomOffset} />
 
       {/* Card shoe — scaled down on mobile so it never crowds the dealer */}
-      <div id="card-shoe" className="pointer-events-none absolute left-3 top-[64px] z-20 flex flex-col items-center sm:left-5 sm:top-[84px]">
-        <div className="relative w-10 h-14 sm:w-[68px] sm:h-[96px]">
+      <div id="card-shoe" className="pointer-events-none absolute left-3.5 top-[56px] z-20 flex flex-col items-center sm:left-5 sm:top-[84px]">
+        <div className="relative w-8 h-11 sm:w-[68px] sm:h-[96px]">
           {[0, 1, 2].map((i) => (
             <div
               key={i}
@@ -184,9 +188,9 @@ function GameTable({
       </div>
 
       {/* Table content */}
-      <div className="relative z-10 flex-1 min-h-0 flex flex-col justify-between py-1 sm:py-2">
+      <div className="relative z-10 flex-1 min-h-0 flex flex-col justify-between px-2 py-1 sm:px-4 sm:py-2">
         {/* Dealer + Phase Divider */}
-        <div className="flex flex-col items-center pt-1.5 sm:pt-3">
+        <div className="flex flex-col items-center pt-1 sm:pt-3 shrink-0">
           <HandDisplay
             hand={gameState.dealer}
             label={`${t.game.dealer}`}
@@ -194,7 +198,7 @@ function GameTable({
             showValue={gameState.phase === 'results' || gameState.phase === 'dealer-turn'}
           />
 
-          <div className="relative mt-1.5 mx-auto w-[78%] sm:w-[58%] h-5 flex items-center">
+          <div className="relative mt-1 sm:mt-1.5 mx-auto w-[72%] sm:w-[58%] h-4 sm:h-5 flex items-center">
             <div className="absolute inset-x-0 top-1/2 h-px bg-yellow-500/20 rounded-full" />
             <span className="relative mx-auto rounded-full bg-[#0c321f]/90 px-3 py-0.5 text-yellow-300/70 text-[9px] sm:text-[11px] font-bold tracking-[0.12em] sm:tracking-[0.2em] uppercase whitespace-nowrap">
               {gameState.phase === 'betting' && `${t.table.placeBets}`}
@@ -218,7 +222,7 @@ function GameTable({
         )}
 
         {/* Bottom Dock: Insurance + Controls */}
-        <div className="flex flex-col items-center gap-2 shrink-0">
+        <div className="flex flex-col items-center gap-1.5 sm:gap-2 shrink-0 w-full">
           {waitingForNextRound && !isSpectator && (
             <div className="rounded-full border border-white/15 bg-black/55 px-4 py-1.5 text-[10px] sm:text-[11px] font-bold uppercase tracking-[0.18em] text-amber-200 shadow-lg">
               {t.seats.joiningNextRound}
@@ -278,8 +282,8 @@ function GameTable({
       {/* Ephemeral Toasts */}
       {localToast && (
         <div
-          className="fixed left-3 sm:left-4 bg-[#0a2719]/95 text-emerald-200 text-[11px] px-3 py-1.5 rounded-xl z-50 font-bold border border-[#416e4e] shadow-lg animate-fade-in"
-          style={{ bottom: `${12 + bottomOffset}px` }}
+          className="fixed left-1/2 -translate-x-1/2 top-[56px] sm:top-auto sm:left-4 sm:translate-x-0 bg-[#0a2719]/95 text-emerald-200 text-[11px] px-3 py-1.5 rounded-xl z-50 font-bold border border-[#416e4e] shadow-lg animate-fade-in whitespace-nowrap sm:bottom-[var(--toast-bottom)]"
+          style={{ '--toast-bottom': `${12 + bottomOffset}px` } as React.CSSProperties}
         >
           {localToast}
         </div>

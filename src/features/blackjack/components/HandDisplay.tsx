@@ -6,6 +6,7 @@ import { ChipStack } from './Chip';
 import { Hand, handValue } from '@/features/blackjack/lib/blackjack';
 import { useLanguage } from '@/shared/i18n/useLanguage';
 import { formatCurrency } from '@/shared/lib/format';
+import { useIsMobile } from '@/shared/hooks/useIsMobile';
 
 interface HandDisplayProps {
   hand: Hand;
@@ -29,6 +30,7 @@ function HandDisplay({
   forceSmall = false,
 }: HandDisplayProps) {
   const { t } = useLanguage();
+  const isMobile = useIsMobile();
   const value = handValue(hand.cards.filter((c) => c.faceUp));
   const hasFaceDown = hand.cards.some((c) => !c.faceUp);
   const useSmallCards = forceSmall || (!isCurrentPlayer && !isDealer);
@@ -51,7 +53,7 @@ function HandDisplay({
   };
 
   return (
-    <div className="flex flex-col items-center gap-1 sm:gap-1.5">
+    <div className="flex flex-col items-center gap-0.5 sm:gap-1.5">
       {(label || shouldShowValue) && (
         <div className="flex items-center gap-1.5">
           {label && (
@@ -82,14 +84,18 @@ function HandDisplay({
           />
         ))}
         {hand.cards.length === 0 && (
-          <div className={`${!useSmallCards ? 'w-[58px] h-[82px] sm:w-[76px] sm:h-[106px]' : 'w-11 h-[62px] sm:w-13 sm:h-[72px]'} border-[2px] border-dashed border-white/20 rounded-xl`} />
+          <div className={`${
+            isMobile
+              ? (!useSmallCards ? 'w-[50px] h-[70px]' : 'w-10 h-[56px]')
+              : (!useSmallCards ? 'w-[50px] h-[70px] sm:w-[76px] sm:h-[106px]' : 'w-10 h-[56px] sm:w-13 sm:h-[72px]')
+          } border-[2px] border-dashed border-white/20 rounded-xl`} />
         )}
       </div>
 
       {hand.bet > 0 && <ChipStack total={hand.bet} small={useSmallCards} />}
 
       {result && (
-        <div className={`text-sm sm:text-base font-bold text-outline-sm animate-bounce-in tabular-nums ${resultColors[result]} ${result === 'blackjack' ? 'animate-pulse sm:text-lg' : ''}`}>
+        <div className={`text-xs sm:text-base font-bold text-outline-sm animate-bounce-in tabular-nums ${resultColors[result]} ${result === 'blackjack' ? 'animate-pulse sm:text-lg' : ''}`}>
           {resultLabels[result]}
           {payout !== undefined && payout > 0 && result !== 'lose' && (
             <span className="ml-1.5 text-xs sm:text-sm text-green-300">+{formatCurrency(payout)}</span>
