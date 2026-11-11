@@ -1,12 +1,30 @@
 'use client';
 
-import React, { createContext, useContext, ReactNode, useSyncExternalStore } from 'react';
+import React, { createContext, useContext, ReactNode, useSyncExternalStore, useEffect } from 'react';
+import { readStorage, writeStorage } from '@/shared/lib/storage';
 
 export type Language = 'en' | 'es';
 
 type Translations = typeof en;
 
 const en = {
+  entry: {
+    title: 'Enter', friends: 'With friends', haveCode: 'I have a code', observe: 'Just watch', codeHint: '6 letters or numbers',
+    namePlaceholder: 'e.g. Alex', chips: 'chips', rules: 'Table rules', insuranceHint: 'Extra bet when the dealer shows an ace.',
+    surrenderHint: 'Recover half your bet when you surrender.', surrender: 'Surrender',
+    soloPending: 'Preparing table…', createPending: 'Creating room…', joinPending: 'Connecting…', cancel: 'Cancel connection',
+    copyCode: 'Copy code', copyLink: 'Copy link', copyFailed: 'Could not copy. Select the code or link below.',
+    copied: 'Copied', inviteLink: 'Invitation link', openTable: 'Open table', leave: 'Leave room',
+    hostPrompt: 'Invite your friends and open the table.', guestPrompt: 'Waiting for the host to open the table.',
+    spectatorPrompt: 'Spectating. Waiting for the host.',
+    errors: {
+      nameRequired: 'Enter your name.', invalidRoomCode: 'Enter the 6 letters or numbers of the code.',
+      createFailed: 'Could not create the room. Check your connection and try again.',
+      joinFailed: 'Could not connect. Check the code and try again.', roomNotFound: 'Room not found. Check the code or ask for a new invitation.',
+      hostLeft: 'The host left. You can create or join another room.',
+    },
+    status: { connecting: 'Connecting…', waitingForPlayers: 'Waiting for players…', waitingForHost: 'Waiting for the host…', spectating: 'Spectating', joiningNextRound: 'Joining next round…' },
+  },
   common: {
     hit: 'HIT',
     stand: 'STAND',
@@ -120,7 +138,10 @@ const en = {
     dealerStands: 'DEALER MUST STAND ON ALL 17s',
     insurancePays: 'INSURANCE PAYS 2 TO 1',
     deck: 'DECK',
-    joinGame: 'JOIN GAME',
+    joinGame: 'JOIN TABLE',
+    noBetsRestart: 'No bets placed in time. New betting window opened.',
+    otherPlayers: 'Table seats',
+    yourHand: 'Your hand',
   },
   results: {
     win: 'WIN!',
@@ -148,6 +169,23 @@ const en = {
 };
 
 const es: Translations = {
+  entry: {
+    title: 'Entrar', friends: 'Con amigos', haveCode: 'Tengo un código', observe: 'Solo observar', codeHint: '6 letras o números',
+    namePlaceholder: 'Ej. Alex', chips: 'fichas', rules: 'Reglas de la mesa', insuranceHint: 'Apuesta extra si el crupier muestra un as.',
+    surrenderHint: 'Recupera media apuesta al retirarte.', surrender: 'Rendición',
+    soloPending: 'Preparando mesa…', createPending: 'Creando sala…', joinPending: 'Conectando…', cancel: 'Cancelar conexión',
+    copyCode: 'Copiar código', copyLink: 'Copiar enlace', copyFailed: 'No se pudo copiar. Selecciona el código o enlace de abajo.',
+    copied: 'Copiado', inviteLink: 'Enlace de invitación', openTable: 'Abrir mesa', leave: 'Salir de la sala',
+    hostPrompt: 'Invita a tus amigos y abre la mesa.', guestPrompt: 'Esperando a que el anfitrión abra la mesa.',
+    spectatorPrompt: 'Observando. Esperando al anfitrión.',
+    errors: {
+      nameRequired: 'Escribe tu nombre.', invalidRoomCode: 'Introduce las 6 letras o números del código.',
+      createFailed: 'No se pudo crear la sala. Revisa tu conexión e inténtalo de nuevo.',
+      joinFailed: 'No se pudo conectar. Revisa el código e inténtalo de nuevo.', roomNotFound: 'Sala no encontrada. Revisa el código o pide otra invitación.',
+      hostLeft: 'El anfitrión salió. Puedes crear otra sala o unirte a una.',
+    },
+    status: { connecting: 'Conectando…', waitingForPlayers: 'Esperando jugadores…', waitingForHost: 'Esperando al anfitrión…', spectating: 'Observando', joiningNextRound: 'Entrando en la próxima ronda…' },
+  },
   common: {
     hit: 'PEDIR',
     stand: 'PLANTARSE',
@@ -160,7 +198,7 @@ const es: Translations = {
     confirm: 'Confirmar',
     loading: 'Cargando...',
     roomCode: 'Código de Sala',
-    playerName: 'Tu Nombre',
+    playerName: 'Tu nombre',
     balance: 'Saldo',
     close: 'Cerrar',
   },
@@ -261,7 +299,10 @@ const es: Translations = {
     dealerStands: 'CRUPIER SE PLANTA EN TODOS LOS 17',
     insurancePays: 'SEGURO PAGA 2 A 1',
     deck: 'MAZO',
-    joinGame: 'UNIRSE',
+    joinGame: 'ENTRAR A JUGAR',
+    noBetsRestart: 'Sin apuestas a tiempo. Reiniciando ronda de apuestas.',
+    otherPlayers: 'Jugadores en mesa',
+    yourHand: 'Tu mano',
   },
   results: {
     win: '¡GANÓ!',
@@ -294,7 +335,7 @@ const LANGUAGE_EVENT = 'bj-language-change';
 
 function getStoredLanguage(): Language {
   if (typeof window === 'undefined') return 'es';
-  const saved = window.localStorage.getItem(LANGUAGE_STORAGE_KEY);
+  const saved = readStorage(LANGUAGE_STORAGE_KEY);
   return saved === 'en' || saved === 'es' ? saved : 'es';
 }
 
@@ -324,9 +365,11 @@ const LanguageContext = createContext<LanguageContextType | undefined>(undefined
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const language = useSyncExternalStore<Language>(subscribe, getStoredLanguage, () => 'es');
 
+  useEffect(() => { document.documentElement.lang = language; }, [language]);
+
   const handleSetLanguage = (lang: Language) => {
     if (typeof window === 'undefined') return;
-    window.localStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
+    writeStorage(LANGUAGE_STORAGE_KEY, lang);
     window.dispatchEvent(new Event(LANGUAGE_EVENT));
   };
 

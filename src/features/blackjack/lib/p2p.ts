@@ -3,7 +3,8 @@
 // ========================
 
 import Peer, { DataConnection } from 'peerjs';
-import { ROOM_CODE_PATTERN } from '@/features/blackjack/lib/validation';
+import { ROOM_CODE_PATTERN, MAX_ROOM_CONNECTIONS } from '@/features/blackjack/lib/validation';
+import { hostClockOffset } from '@/features/blackjack/lib/clock';
 
 const ROOM_CODE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 const ROOM_CODE_LENGTH = 6;
@@ -46,7 +47,9 @@ export type MessageType =
   | 'player-leave'
   | 'player-spectate'
   | 'room-settings-sync'
-  | 'chat';
+  | 'chat'
+  | 'ping'
+  | 'pong';
 
 export type PlayerActionKind = 'hit' | 'stand' | 'double' | 'split' | 'surrender' | 'insure' | 'decline-insurance';
 
@@ -59,12 +62,25 @@ export interface GameMessage {
 
 type MessageHandler = (msg: GameMessage) => void;
 type DisconnectHandler = (peerId: string) => void;
+type ClockHandler = (offsetMs: number) => void;
+
+const HEARTBEAT_INTERVAL_MS = 3000;
+const HEARTBEAT_TIMEOUT_MS = 7000;
+const RATE_LIMIT_WINDOW_MS = 1000;
+const MAX_MESSAGES_PER_WINDOW = 30;
 
 export class P2PConnection {
   private peer: Peer | null = null;
   private connections: Map<string, DataConnection> = new Map();
+  private lastSeenMap: Map<string, number> = new Map();
+  private rateLimitMap: Map<string, { count: number; windowStart: number }> = new Map();
+  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private messageHandlers: Set<MessageHandler> = new Set();
   private disconnectHandlers: Set<DisconnectHandler> = new Set();
+  private clockHandlers: Set<ClockHandler> = new Set();
+  private clockRequests = new Map<string, number>();
+  private pendingCancel: (() => void) | null = null;
+  private _clockOffsetMs: number | null = null;
   private _peerId: string = '';
   private _isHost: boolean = false;
   private _isSpectator: boolean = false;
@@ -85,6 +101,20 @@ export class P2PConnection {
     return Array.from(this.connections.keys());
   }
 
+  get clockOffsetMs(): number | null { return this._clockOffsetMs; }
+
+  onClockSync(handler: ClockHandler): () => void {
+    this.clockHandlers.add(handler);
+    return () => this.clockHandlers.delete(handler);
+  }
+
+  private ping(conn: DataConnection): void {
+    if (!conn.open) return;
+    const now = Date.now();
+    this.clockRequests.set(conn.peer, now);
+    conn.send({ type: 'ping', payload: null, senderId: this._peerId, timestamp: now });
+  }
+
   onMessage(handler: MessageHandler): () => void {
     this.messageHandlers.add(handler);
     return () => this.messageHandlers.delete(handler);
@@ -103,12 +133,52 @@ export class P2PConnection {
     this.disconnectHandlers.forEach((handler) => handler(peerId));
   }
 
+  private startHeartbeat(): void {
+    if (this.heartbeatTimer) return;
+    this.heartbeatTimer = setInterval(() => {
+      const now = Date.now();
+      this.connections.forEach((conn, peerId) => {
+        const lastSeen = this.lastSeenMap.get(peerId) ?? now;
+        if (now - lastSeen > HEARTBEAT_TIMEOUT_MS) {
+          // Connection timed out without heartbeat response
+          this.connections.delete(peerId);
+          this.lastSeenMap.delete(peerId);
+          try {
+            conn.close();
+          } catch {
+            // Already closed
+          }
+          this.handlePeerDisconnect(peerId);
+        } else if (conn.open) {
+          this.ping(conn);
+        }
+      });
+      if (this.connections.size === 0) {
+        this.stopHeartbeat();
+      }
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+  }
+
   private setupConnection(conn: DataConnection): void {
     let closed = false;
     const finalizeDisconnect = () => {
       if (closed) return;
       closed = true;
+      if (this.connections.get(conn.peer) !== conn) return;
       this.connections.delete(conn.peer);
+      this.lastSeenMap.delete(conn.peer);
+      this.rateLimitMap.delete(conn.peer);
+      this.clockRequests.delete(conn.peer);
+      if (this.connections.size === 0) {
+        this.stopHeartbeat();
+      }
       try {
         conn.close();
       } catch {
@@ -117,9 +187,53 @@ export class P2PConnection {
       this.handlePeerDisconnect(conn.peer);
     };
 
+    this.lastSeenMap.set(conn.peer, Date.now());
+    this.startHeartbeat();
+
     conn.on('data', (data) => {
-      // Never trust senderId coming from payload; bind identity to the transport peer.
+      const now = Date.now();
+      this.lastSeenMap.set(conn.peer, now);
       const incoming = data as GameMessage;
+      if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) return;
+
+      // Per-peer sliding window rate limit to prevent message-flood DoS
+      const bucket = this.rateLimitMap.get(conn.peer);
+      if (!bucket || now - bucket.windowStart >= RATE_LIMIT_WINDOW_MS) {
+        this.rateLimitMap.set(conn.peer, { count: 1, windowStart: now });
+      } else {
+        bucket.count += 1;
+        if (bucket.count > MAX_MESSAGES_PER_WINDOW) {
+          return;
+        }
+      }
+
+      if (incoming.type === 'ping') {
+        if (conn.open) {
+          conn.send({
+            type: 'pong',
+            payload: { sentAt: incoming.timestamp },
+            senderId: this._peerId,
+            timestamp: Date.now(),
+          });
+        }
+        return;
+      }
+
+      if (incoming.type === 'pong') {
+        const payload = incoming.payload as { sentAt?: unknown } | null;
+        const sentAt = this.clockRequests.get(conn.peer);
+        if (!this._isHost && typeof sentAt === 'number' && payload?.sentAt === sentAt) {
+          const offset = hostClockOffset(sentAt, incoming.timestamp, Date.now());
+          if (offset !== null) {
+            this._clockOffsetMs = offset;
+            this.clockRequests.delete(conn.peer);
+            this.clockHandlers.forEach((handler) => handler(offset));
+          }
+        }
+        return;
+      }
+
+      // Never trust senderId coming from payload; bind identity to the transport peer.
       this.handleMessage({
         ...incoming,
         senderId: conn.peer,
@@ -143,37 +257,63 @@ export class P2PConnection {
         finalizeDisconnect();
       }
     });
+    this.ping(conn);
   }
 
-  async createRoom(): Promise<string> {
+  async createRoom(maxRetries: number = 3): Promise<string> {
     this._isHost = true;
-    const roomCode = generateRoomCode();
-
-    return new Promise((resolve, reject) => {
-      this.peer = new Peer(`blackjack-${roomCode}`, peerServerOptions());
-
-      this.peer.on('open', (id) => {
-        this._peerId = id;
-        resolve(roomCode);
-      });
-
-      this.peer.on('connection', (conn) => {
-        conn.on('open', () => {
-          this.connections.set(conn.peer, conn);
-          this.setupConnection(conn);
+    this._clockOffsetMs = 0;
+    for (let attempt = 0; ; attempt++) {
+      const roomCode = generateRoomCode();
+      try {
+        return await new Promise<string>((resolve, reject) => {
+          let settled = false;
+          const peer = new Peer(`blackjack-${roomCode}`, peerServerOptions());
+          this.peer = peer;
+          const finish = (error?: Error) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            this.pendingCancel = null;
+            if (error) {
+              peer.destroy();
+              if (this.peer === peer) this.peer = null;
+              reject(error);
+            } else resolve(roomCode);
+          };
+          const timeout = setTimeout(() => finish(new Error('Connection timeout')), 15000);
+          this.pendingCancel = () => finish(new Error('Connection cancelled'));
+          peer.on('open', (id) => {
+            if (settled) return;
+            this._peerId = id;
+            finish();
+          });
+          peer.on('connection', (conn) => {
+            conn.on('open', () => {
+              if (this.peer !== peer) { conn.close(); return; }
+              const existing = this.connections.get(conn.peer);
+              if (!existing && this.connections.size >= MAX_ROOM_CONNECTIONS) {
+                conn.close();
+                return;
+              }
+              this.connections.set(conn.peer, conn);
+              existing?.close();
+              this.setupConnection(conn);
+            });
+          });
+          peer.on('error', (error) => finish(error));
         });
-      });
-
-      this.peer.on('error', (err) => {
-        console.error('Peer error:', err);
-        reject(err);
-      });
-    });
+      } catch (error) {
+        if ((error as { type?: string }).type === 'unavailable-id' && attempt < maxRetries) continue;
+        throw error;
+      }
+    }
   }
 
   async joinRoom(roomCode: string, asSpectator: boolean = false): Promise<void> {
     this._isHost = false;
     this._isSpectator = asSpectator;
+    this._clockOffsetMs = null;
 
     const code = roomCode.trim().toUpperCase();
     if (!ROOM_CODE_PATTERN.test(code)) {
@@ -189,12 +329,14 @@ export class P2PConnection {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
+        this.pendingCancel = null;
         resolve();
       };
       const fail = (err: Error) => {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
+        this.pendingCancel = null;
         this.peer?.destroy();
         this.peer = null;
         reject(err);
@@ -205,6 +347,7 @@ export class P2PConnection {
         }
       }, 15000);
 
+      this.pendingCancel = () => fail(new Error('Connection cancelled'));
       this.peer = new Peer(peerServerOptions());
 
       this.peer.on('open', (id) => {
@@ -257,6 +400,16 @@ export class P2PConnection {
   }
 
   disconnect(): void {
+    this.messageHandlers.clear();
+    this.disconnectHandlers.clear();
+    this.clockHandlers.clear();
+    const cancel = this.pendingCancel;
+    this.pendingCancel = null;
+    cancel?.();
+    this.stopHeartbeat();
+    this.clockRequests.clear();
+    this.lastSeenMap.clear();
+    this.rateLimitMap.clear();
     this.connections.forEach((conn) => conn.close());
     this.connections.clear();
     this.peer?.destroy();

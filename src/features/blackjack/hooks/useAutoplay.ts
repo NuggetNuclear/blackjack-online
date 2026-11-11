@@ -16,6 +16,7 @@ interface UseAutoplayParams {
   gameState: GameState;
   myId: string;
   isSpectator: boolean;
+  bettingSynchronized?: boolean;
   isHostRef: React.RefObject<boolean>;
   autoplay: AutoplayConfig;
   balance: number;
@@ -28,7 +29,7 @@ interface UseAutoplayParams {
 }
 
 export function useAutoplay({
-  gameState, myId, isSpectator, isHostRef,
+  gameState, myId, isSpectator, isHostRef, bettingSynchronized = true,
   autoplay, balance,
   gameStateRef,
   handleHit, handleStand, handleNewRound,
@@ -61,7 +62,7 @@ export function useAutoplay({
   // --- Auto-bet ---
   useEffect(() => {
     const cfg = autoplayRef.current;
-    if (!cfg.enabled || isSpectator) return;
+    if (!cfg.enabled || isSpectator || !bettingSynchronized) return;
     if (gameState.phase !== 'betting') return;
     if (cfg.autoBet === 0 || myAutoReady) return;
     if (autoBetPhaseRef.current === gameState.phaseStartedAt) return;
@@ -83,12 +84,12 @@ export function useAutoplay({
       confirmBetRef.current(finalBet);
     }, 800);
     return () => clearTimeout(timer);
-  }, [gameState.phase, gameState.phaseStartedAt, myAutoReady, isSpectator, myId, gameStateRef, autoplay.enabled, autoplay.autoBet]);
+  }, [gameState.phase, gameState.phaseStartedAt, myAutoReady, isSpectator, bettingSynchronized, myId, gameStateRef, autoplay.enabled, autoplay.autoBet]);
 
   // --- Auto-play (hit/stand/double) ---
   useEffect(() => {
     if (!autoplayRoundActive) return;
-    if (myAutoHandDone || myAutoCardCount === 0) return;
+    if (myAutoHandDone || myAutoCardCount < 2) return;
 
     const me = gameStateRef.current.players[myId];
     if (!me) return;
@@ -132,7 +133,7 @@ export function useAutoplay({
       handleStand();
     }, AUTOPLAY_SAFETY_TIMEOUT_MS);
     return () => clearTimeout(timer);
-  }, [autoplayRoundActive, myAutoHandDone, myId, handleStand, gameStateRef]);
+  }, [autoplayRoundActive, myAutoHandDone, activeHandIndex, myAutoCardCount, myId, handleStand, gameStateRef]);
 
   // --- Auto new-round (host only) ---
   useEffect(() => {
@@ -146,7 +147,7 @@ export function useAutoplay({
       if (!autoplayRef.current.enabled) return;
       if (gameStateRef.current.phase !== 'results') return;
       handleNewRound();
-    }, 2500);
+    }, 3600);
     return () => clearTimeout(timer);
   }, [gameState.phase, isSpectator, handleNewRound, gameStateRef, isHostRef]);
 

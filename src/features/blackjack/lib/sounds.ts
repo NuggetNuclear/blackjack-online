@@ -4,24 +4,58 @@
 
 class SoundEngine {
   private ctx: AudioContext | null = null;
+  private noiseBuffer: AudioBuffer | null = null;
   private enabled = true;
   private volume = 0.3;
+  private unlocked = false;
+
+  constructor() {
+    this.initUserGestureUnlock();
+  }
+
+  private initUserGestureUnlock() {
+    if (typeof window === 'undefined') return;
+    const unlock = () => {
+      if (this.ctx && this.ctx.state === 'suspended') {
+        void this.ctx.resume();
+      }
+      this.unlocked = true;
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+      window.removeEventListener('touchstart', unlock);
+    };
+    window.addEventListener('pointerdown', unlock, { passive: true, once: true });
+    window.addEventListener('keydown', unlock, { passive: true, once: true });
+    window.addEventListener('touchstart', unlock, { passive: true, once: true });
+  }
 
   private getCtx(): AudioContext {
     if (!this.ctx) {
-      this.ctx = new AudioContext();
+      const AudioCtxClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      this.ctx = new AudioCtxClass();
     }
     if (this.ctx.state === 'suspended') {
-      this.ctx.resume();
+      void this.ctx.resume();
     }
     return this.ctx;
+  }
+
+  private getNoiseBuffer(ctx: AudioContext): AudioBuffer {
+    if (!this.noiseBuffer || this.noiseBuffer.sampleRate !== ctx.sampleRate) {
+      // Pre-allocate 1 second of white noise
+      const bufferSize = ctx.sampleRate;
+      this.noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+      const data = this.noiseBuffer.getChannelData(0);
+      for (let i = 0; i < bufferSize; i++) {
+        data[i] = (Math.random() * 2 - 1) * 0.15;
+      }
+    }
+    return this.noiseBuffer;
   }
 
   setEnabled(enabled: boolean) {
     this.enabled = enabled;
   }
-
-
 
   private playTone(freq: number, duration: number, type: OscillatorType = 'sine', gainVal?: number) {
     if (!this.enabled) return;
@@ -35,6 +69,16 @@ class SoundEngine {
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
       osc.connect(gain);
       gain.connect(ctx.destination);
+
+      osc.onended = () => {
+        try {
+          osc.disconnect();
+          gain.disconnect();
+        } catch {
+          // Ignore
+        }
+      };
+
       osc.start(ctx.currentTime);
       osc.stop(ctx.currentTime + duration);
     } catch {
@@ -46,20 +90,25 @@ class SoundEngine {
     if (!this.enabled) return;
     try {
       const ctx = this.getCtx();
-      const bufferSize = ctx.sampleRate * duration;
-      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) {
-        data[i] = (Math.random() * 2 - 1) * 0.15;
-      }
       const source = ctx.createBufferSource();
-      source.buffer = buffer;
+      source.buffer = this.getNoiseBuffer(ctx);
       const gain = ctx.createGain();
       gain.gain.value = gainVal ?? this.volume * 0.3;
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
       source.connect(gain);
       gain.connect(ctx.destination);
+
+      source.onended = () => {
+        try {
+          source.disconnect();
+          gain.disconnect();
+        } catch {
+          // Ignore
+        }
+      };
+
       source.start();
+      source.stop(ctx.currentTime + duration);
     } catch {
       // Audio not available
     }

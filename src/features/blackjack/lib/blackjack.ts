@@ -20,6 +20,7 @@ export interface Hand {
   doubled: boolean;
   surrendered: boolean;
   insuranceBet: number;
+  insuranceDecided?: boolean;
   result?: 'win' | 'lose' | 'push' | 'blackjack';
   payout?: number;
 }
@@ -186,7 +187,7 @@ export function createEmptyHand(): Hand {
  *  replaced with a fresh shuffled shoe BEFORE dealing. Keeping the swap at the
  *  round boundary means the emergency mid-round refill in dealCard (which can
  *  briefly duplicate cards already on the table) is practically unreachable. */
-export const RESHUFFLE_THRESHOLD = 60;
+export const RESHUFFLE_THRESHOLD = 80;
 
 export function dealCard(deck: Card[], faceUp: boolean = true): { card: Card; deck: Card[] } {
   if (deck.length < 20) {
@@ -198,8 +199,10 @@ export function dealCard(deck: Card[], faceUp: boolean = true): { card: Card; de
 }
 
 /** Placeholder substituted for any face-down card when replicating state to
- *  peers. The real rank/suit stays host-only until the card is flipped. */
-const HIDDEN_CARD: Card = { suit: 'spades', rank: 'A', faceUp: false };
+ *  peers. The real rank/suit stays host-only until the card is flipped.
+ *  Rank '2' is chosen so peers can never inadvertently evaluate a 21/blackjack
+ *  if they compute handValue without filtering for faceUp. */
+const HIDDEN_CARD: Card = { suit: 'spades', rank: '2', faceUp: false };
 
 function maskFaceDownCards(hand: Hand): Hand {
   if (!hand.cards.some((c) => !c.faceUp)) return hand;
@@ -475,6 +478,7 @@ export function playerSplit(state: GameState, playerId: string): GameState {
     cards: [card2, newCard2],
     blackjack: false,
     stood: hand2HasTwentyOne,
+    insuranceBet: 0,
   };
 
   const newHands = [...player.hands];
@@ -509,8 +513,17 @@ export function allPlayersFinished(state: GameState): boolean {
 
 // ===== Surrender =====
 
-export function canSurrender(hand: Hand, surrenderEnabled: boolean): boolean {
-  return surrenderEnabled && hand.cards.length === 2 && !hand.stood && !hand.busted && !hand.doubled && !hand.surrendered && !hand.blackjack;
+export function canSurrender(hand: Hand, surrenderEnabled: boolean, handsCount: number = 1): boolean {
+  return (
+    surrenderEnabled &&
+    handsCount === 1 &&
+    hand.cards.length === 2 &&
+    !hand.stood &&
+    !hand.busted &&
+    !hand.doubled &&
+    !hand.surrendered &&
+    !hand.blackjack
+  );
 }
 
 export function playerSurrender(state: GameState, playerId: string): GameState {
@@ -518,7 +531,7 @@ export function playerSurrender(state: GameState, playerId: string): GameState {
   const player = state.players[playerId];
   if (!player) return state;
   const hand = player.hands[player.activeHandIndex];
-  if (!hand || !canSurrender(hand, state.settings.surrenderEnabled)) return state;
+  if (!hand || !canSurrender(hand, state.settings.surrenderEnabled, player.hands.length)) return state;
 
   const halfBet = Math.floor(hand.bet / 2);
   const newHands = [...player.hands];
@@ -564,16 +577,17 @@ export function playerInsure(state: GameState, playerId: string): GameState {
   const hand = player.hands[0];
   if (!hand || hand.bet <= 0 || hand.cards.length !== 2) return state;
   if (hand.stood || hand.busted || hand.surrendered || hand.blackjack) return state;
-  if (hand.insuranceBet > 0) return state;
+  if (hand.insuranceBet > 0 || hand.insuranceDecided) return state;
   const insuranceCost = Math.floor(hand.bet / 2);
   if (insuranceCost <= 0) return state;
   if (insuranceCost > player.balance) return state;
 
   const newHands = [...player.hands];
-  newHands[0] = { ...hand, insuranceBet: insuranceCost };
+  newHands[0] = { ...hand, insuranceBet: insuranceCost, insuranceDecided: true };
 
   return {
     ...state,
+    turnStartedAt: Date.now(),
     players: {
       ...state.players,
       [playerId]: {
@@ -585,9 +599,79 @@ export function playerInsure(state: GameState, playerId: string): GameState {
   };
 }
 
-export function playerDeclineInsurance(state: GameState): GameState {
-  // No-op on state, but useful for tracking — insurance bet stays 0
-  return state;
+export function playerDeclineInsurance(state: GameState, playerId?: string): GameState {
+  if (!playerId) return state;
+  if (state.phase !== 'playing') return state;
+  if (!state.settings.insuranceEnabled || !dealerShowsAce(state)) return state;
+  const player = state.players[playerId];
+  if (!player || player.hands.length !== 1) return state;
+  const hand = player.hands[0];
+  if (!hand || hand.bet <= 0 || hand.cards.length !== 2) return state;
+  if (hand.insuranceBet > 0 || hand.insuranceDecided) return state;
+
+  const newHands = [...player.hands];
+  newHands[0] = { ...hand, insuranceDecided: true };
+
+  return {
+    ...state,
+    players: {
+      ...state.players,
+      [playerId]: {
+        ...player,
+        hands: newHands,
+      },
+    },
+  };
+}
+
+/** True when any player is still eligible to make an insurance decision. */
+export function hasPendingInsuranceDecision(state: GameState): boolean {
+  if (state.phase !== 'playing' || !state.settings.insuranceEnabled || !dealerShowsAce(state)) {
+    return false;
+  }
+  return Object.values(state.players).some((player) => {
+    if (player.hands.length !== 1) return false;
+    const hand = player.hands[0];
+    if (!hand || hand.bet <= 0 || hand.cards.length !== 2) return false;
+    if (hand.stood || hand.busted || hand.surrendered || hand.blackjack) return false;
+    if (hand.insuranceBet > 0 || hand.insuranceDecided) return false;
+    const cost = Math.floor(hand.bet / 2);
+    return cost > 0 && player.balance >= cost;
+  });
+}
+
+/** Auto-stand all remaining actionable hands when the action timer expires.
+ *  Prevents N*10s sequential AFK stalls in multiplayer or multi-hand splits. */
+export function autoStandTimedOutPlayers(state: GameState): GameState {
+  if (state.phase !== 'playing') return state;
+  let changed = false;
+  const newPlayers: Record<string, PlayerState> = { ...state.players };
+
+  for (const [pid, player] of Object.entries(state.players)) {
+    let playerChanged = false;
+    const updatedHands = player.hands.map((hand) => {
+      if (hand.cards.length >= 2 && !hand.stood && !hand.busted && !hand.blackjack && !hand.surrendered) {
+        playerChanged = true;
+        return { ...hand, stood: true };
+      }
+      return hand;
+    });
+    if (playerChanged) {
+      changed = true;
+      newPlayers[pid] = {
+        ...player,
+        hands: updatedHands,
+        activeHandIndex: updatedHands.length,
+      };
+    }
+  }
+
+  if (!changed) return state;
+  return {
+    ...state,
+    turnStartedAt: Date.now(),
+    players: newPlayers,
+  };
 }
 
 /** @deprecated Use the step-by-step animated path (flipDealerHoleCard → dealerHitOne → finalizeDealerHand) instead. */
@@ -595,9 +679,14 @@ export function playDealerHand(state: GameState): GameState {
   let deck = [...state.deck];
   const dealerCards = state.dealer.cards.map((c) => ({ ...c, faceUp: true }));
 
-  // Check if all players busted
-  const allBusted = Object.values(state.players).every((p) => p.hands.every(h => h.busted));
-  if (allBusted) {
+  // Check if all active players are resolved (busted or surrendered)
+  const activeHands = Object.values(state.players).flatMap((p) =>
+    p.hands.filter((h) => h.bet > 0 && h.cards.length > 0)
+  );
+  const allResolvedWithoutDealer =
+    activeHands.length === 0 || activeHands.every((h) => h.busted || h.surrendered);
+
+  if (allResolvedWithoutDealer) {
     return {
       ...state,
       deck,
@@ -654,8 +743,12 @@ export function flipDealerHoleCard(state: GameState): GameState {
 
 /** Check if the dealer should draw another card (hits on <17) */
 export function shouldDealerHit(state: GameState): boolean {
-  const allBusted = Object.values(state.players).every((p) => p.hands.every(h => h.busted));
-  if (allBusted) return false;
+  const activeHands = Object.values(state.players).flatMap((p) =>
+    p.hands.filter((h) => h.bet > 0 && h.cards.length > 0)
+  );
+  if (activeHands.length === 0 || activeHands.every((h) => h.busted || h.surrendered || h.blackjack)) {
+    return false;
+  }
   return handValue(state.dealer.cards) < 17;
 }
 

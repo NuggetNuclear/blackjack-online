@@ -3,107 +3,67 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { GameState } from '@/features/blackjack/lib/blackjack';
 import EntryButton from '@/features/blackjack/components/entry/EntryButton';
-
-type CopyChoice = 'link' | 'code';
+import EntryShell from '@/features/blackjack/components/entry/EntryShell';
+import { useLanguage } from '@/shared/i18n/useLanguage';
 
 interface WaitingRoomScreenProps {
   roomCode: string;
   gameState: GameState;
   isHost: boolean;
+  isSpectator: boolean;
   onStartGame: () => void;
   onExitRoom: () => void;
 }
 
-export default function WaitingRoomScreen({
-  roomCode,
-  gameState,
-  isHost,
-  onStartGame,
-  onExitRoom,
-}: WaitingRoomScreenProps) {
-  const [copyMenuOpen, setCopyMenuOpen] = useState(false);
-  const [copyFeedback, setCopyFeedback] = useState<string>('');
-  const players = useMemo(
-    () =>
-      Object.values(gameState.players).sort((left, right) => {
-        if (left.id === gameState.hostId) return -1;
-        if (right.id === gameState.hostId) return 1;
-        return left.name.localeCompare(right.name);
-      }),
-    [gameState.hostId, gameState.players]
-  );
+export default function WaitingRoomScreen({ roomCode, gameState, isHost, isSpectator, onStartGame, onExitRoom }: WaitingRoomScreenProps) {
+  const { t } = useLanguage();
+  const [feedback, setFeedback] = useState<'copied' | 'failed' | null>(null);
+  const [inviteLink, setInviteLink] = useState('');
+  const players = useMemo(() => Object.values(gameState.players).sort((left, right) =>
+    left.id === gameState.hostId ? -1 : right.id === gameState.hostId ? 1 : left.name.localeCompare(right.name)
+  ), [gameState.hostId, gameState.players]);
 
   useEffect(() => {
-    if (!copyFeedback) return;
-
-    const timeout = window.setTimeout(() => {
-      setCopyFeedback('');
-    }, 2000);
-
+    if (feedback !== 'copied') return;
+    const timeout = window.setTimeout(() => setFeedback(null), 2000);
     return () => window.clearTimeout(timeout);
-  }, [copyFeedback]);
+  }, [feedback]);
 
-  const handleCopy = async (choice: CopyChoice) => {
-    const value = choice === 'link'
-      ? `${window.location.origin}${window.location.pathname}?room=${roomCode}`
-      : roomCode;
-
-    await navigator.clipboard.writeText(value);
-    setCopyFeedback(choice === 'link' ? 'Link copied' : 'Code copied');
-    setCopyMenuOpen(false);
+  const copy = async (kind: 'code' | 'link') => {
+    const link = new URL(window.location.pathname, window.location.origin);
+    link.searchParams.set('room', roomCode);
+    try {
+      await navigator.clipboard.writeText(kind === 'code' ? roomCode : link.href);
+      setFeedback('copied');
+    } catch {
+      setInviteLink(link.href);
+      setFeedback('failed');
+    }
   };
 
   return (
-    <main className="entry-screen">
-      <section className="entry-column">
-        <header className="entry-room">
-          <p className="entry-room__label">Room Code</p>
-          <button
-            type="button"
-            className="entry-room__trigger"
-            onClick={() => setCopyMenuOpen((open) => !open)}
-            aria-expanded={copyMenuOpen}
-            aria-haspopup="menu"
-          >
-            {roomCode}
-          </button>
-          {copyMenuOpen && (
-            <div className="entry-copy-actions" role="menu" aria-label="Copy room details">
-              <button type="button" className="entry-copy-button" onClick={() => void handleCopy('link')} role="menuitem">
-                Copy Link
-              </button>
-              <button type="button" className="entry-copy-button" onClick={() => void handleCopy('code')} role="menuitem">
-                Copy Code
-              </button>
-            </div>
-          )}
-          {copyFeedback && <p className="entry-copy-feedback">{copyFeedback}</p>}
-        </header>
-
-        <section className="entry-list-block" aria-label="Player list">
-          <p className="entry-room__label">Players</p>
-          <ul className="entry-list">
-            {players.map((player) => (
-              <li key={player.id} className="entry-list__item">
-                <span className="entry-list__name">{player.name}</span>
-                {player.id === gameState.hostId && <span className="entry-badge">Host</span>}
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <div className="entry-actions">
-          {isHost && (
-            <EntryButton type="button" variant="primary" onClick={onStartGame}>
-              Start Game
-            </EntryButton>
-          )}
-
-          <EntryButton type="button" variant="secondary" onClick={onExitRoom}>
-            Leave
-          </EntryButton>
-        </div>
+    <EntryShell>
+      <h2 className="entry-heading">{t.common.roomCode}</h2>
+      <p className="entry-room-code" aria-label={t.common.roomCode}>{roomCode}</p>
+      <div className="entry-copy-actions">
+        <EntryButton onClick={() => void copy('link')}>{t.entry.copyLink}</EntryButton>
+        <EntryButton onClick={() => void copy('code')}>{t.entry.copyCode}</EntryButton>
+      </div>
+      <div className="entry-feedback" role="status" aria-live="polite">
+        {feedback === 'copied' && <p className="entry-hint">{t.entry.copied}</p>}
+        {feedback === 'failed' && <><p className="entry-error">{t.entry.copyFailed}</p><label className="entry-field">{t.entry.inviteLink}<input className="entry-input" readOnly value={inviteLink} onFocus={(event) => event.target.select()} /></label></>}
+      </div>
+      <p className="entry-hint">{isHost ? t.entry.hostPrompt : isSpectator ? t.entry.spectatorPrompt : t.entry.guestPrompt}</p>
+      <section className="entry-players" aria-label={t.waiting.players}>
+        <h3>{t.waiting.players}</h3>
+        <ul className="entry-list">
+          {players.map((player) => <li key={player.id}><span>{player.name}</span>{player.id === gameState.hostId && <span className="entry-badge">{t.waiting.leaderBadge}</span>}</li>)}
+        </ul>
       </section>
-    </main>
+      <div className="entry-actions">
+        {isHost && <EntryButton variant="primary" onClick={onStartGame}>{t.entry.openTable}</EntryButton>}
+        <EntryButton onClick={onExitRoom}>{t.entry.leave}</EntryButton>
+      </div>
+    </EntryShell>
   );
 }

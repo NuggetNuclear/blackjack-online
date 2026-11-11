@@ -280,7 +280,7 @@ The constants are defined in `src/features/blackjack/lib/blackjack.ts`:
 - `turnStartedAt`
 - `Date.now()`
 
-That design matters because the UI countdown is a projection of canonical host timestamps, not an independent local timer system.
+The UI countdown projects canonical host timestamps through a clock offset obtained from matching ping/pong responses. The offset includes a conservative return-trip bound, so network latency may close a peer window slightly early. Betting is disabled until this clock sample arrives. The host also validates the actual deadline when processing each bet. Timers do not run while `tableOpen` is false; opening the table starts a fresh betting window.
 
 ### Betting timeout
 
@@ -371,8 +371,8 @@ There is also a `15000ms` autoplay safety timeout that forces a stand if the rou
 
 `src/features/blackjack/lib/wallet.ts` stores:
 
-- bankroll payload in `bj_wallet`
-- HMAC signature in `bj_wallet_sig`
+- one atomic `{ payload, sig }` document in `bj_wallet`
+- legacy `bj_wallet_sig` signatures are verified and migrated on read
 
 Behavior:
 
@@ -387,7 +387,7 @@ Behavior:
 - the last 100 result records
 - an HMAC signature
 
-`useResultsEffects.ts` writes history records during the `results` phase.
+`useResultsEffects.ts` writes history records once per local session/round during the `results` phase. It commits records independently from delayed sound/animation effects, and cleans up the latter when the session changes. Wallet/history/preferences use an in-memory fallback if browser storage is unavailable.
 
 ### Security note
 
@@ -422,7 +422,7 @@ When a peer's data connection closes without an explicit `player-leave` (tab clo
 - There is no dedicated "insurance resolution" or "dealer peek" subphase before players begin acting. Instead, while the host holds a still-hidden dealer blackjack (the `1800ms` pre-reveal window), it silently rejects every action except `insure`/`decline-insurance`, so nobody can hit, double, or split into an already-decided round. Insurance stays allowed because that window is the only moment an insurance bet can ever win.
 - Invalid or rejected actions do not change state identity and therefore trigger no broadcast; a peer's optimistic balance display is walked back by the next authoritative sync (at the latest, the next phase transition).
 - `playDealerHand()` in `blackjack.ts` is marked `@deprecated`. The runtime path is the staged trio: `flipDealerHoleCard()` → `dealerHitOne()` → `finalizeDealerHand()`. New code should not call `playDealerHand`.
-- The shoe is replaced at the round boundary: `dealInitialCards()` swaps in a fresh shuffled six-deck shoe when fewer than `RESHUFFLE_THRESHOLD` (60) cards remain. `dealCard()` keeps an emergency mid-round refill below 20 cards, but the round-boundary swap makes it practically unreachable.
+- The shoe is replaced at the round boundary: `dealInitialCards()` swaps in a fresh shuffled six-deck shoe when fewer than `RESHUFFLE_THRESHOLD` (80) cards remain. `dealCard()` keeps an emergency mid-round refill below 20 cards, but the round-boundary swap makes it practically unreachable.
 - A spectator who clicks "Join Game" defers their `isSpectator → false` flip until the host's next `game-state-sync` includes them as a player (`pendingJoinRef` in `useRoomConnection`). This avoids a window where the UI shows player controls but the player isn't yet in `players`.
 - A `dealingRef` guard in `useDealerProgression` prevents the "all-ready" path and the betting-timeout path from both dispatching the deal in the same tick.
 - Joining via URL: a `?room=CODE` query parameter on the lobby URL pre-fills the join input. The "Copy Link" action in the waiting room writes a URL of this shape, while "Copy Code" writes only the 6-char room code.
@@ -434,3 +434,12 @@ When a peer's data connection closes without an explicit `player-leave` (tab clo
 - Randomness uses the browser CSPRNG, but the shuffle is not independently auditable (no commit-reveal scheme).
 - The turn model is simpler than real table sequencing and may not match every player expectation.
 - The transport layer reserves chat but does not implement it.
+
+## Entry and session lifecycle corrections (2026-11-09)
+
+- The lobby has one selected intent (`solo`, `create`, `join`) and an independent spectator role. Enter submits the selected intent. Hidden room fields are not mounted.
+- `EntryGate` excludes competing operations synchronously. Cancel invalidates the attempt before disconnecting; late completions cannot replace a newer session. Create/join attempts have a 15-second timeout, and unmount destroys the owned transport.
+- Error codes carry a destination field and are translated in the UI. The waiting room shares the entry design and localizes host/guest/spectator prompts. Clipboard rejection exposes a selectable link.
+- Browser-only preferences and invitation parameters load after a stable initial render, avoiding server/client structural mismatches.
+- Host and peer both retain a zero available balance during an active all-in hand; the existing replenishment rule applies at settlement/new session.
+- The exit confirmation uses a native modal dialog for keyboard handling and focus containment, restoring focus on close. Card animations respect reduced motion.

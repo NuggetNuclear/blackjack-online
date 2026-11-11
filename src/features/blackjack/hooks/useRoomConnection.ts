@@ -14,17 +14,46 @@ import {
   playerSurrender,
   playerSplit,
   playerInsure,
+  playerDeclineInsurance,
   startNewRound,
   sanitizeStateForBroadcast,
   isDealerBlackjackPending,
 } from '@/features/blackjack/lib/blackjack';
-import { isValidBet, sanitizeJoinBalance, sanitizePlayerName } from '@/features/blackjack/lib/validation';
+import {
+  isRecord,
+  isValidBet,
+  isValidPlayerAction,
+  isValidGameStateSync,
+  sanitizeClientId,
+  sanitizeJoinBalance,
+  sanitizePlayerName,
+  sanitizeRoomSettings,
+  MAX_TABLE_SEATS,
+  ROOM_CODE_PATTERN,
+} from '@/features/blackjack/lib/validation';
 import { P2PConnection, GameMessage, PlayerActionKind } from '@/features/blackjack/lib/p2p';
 import { getBalance, setBalance } from '@/features/blackjack/lib/wallet';
+import { readStorage, writeStorage, removeStorage } from '@/shared/lib/storage';
+import { EntryGate } from '@/features/blackjack/lib/entry';
+import type { EntryAction, RoomError, ConnectionStatus } from '@/features/blackjack/lib/entry';
+import { isBettingOpen } from '@/features/blackjack/lib/clock';
+import { useLanguage } from '@/shared/i18n/useLanguage';
 
 export type Screen = 'lobby' | 'waiting' | 'game';
 
 const PLAYER_NAME_STORAGE_KEY = 'bj_player_name';
+const CLIENT_ID_STORAGE_KEY = 'bj_client_id';
+
+function getOrCreateClientId(): string {
+  if (typeof window === 'undefined') return 'server-client';
+  const stored = sanitizeClientId(readStorage(CLIENT_ID_STORAGE_KEY));
+  if (stored) return stored;
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  const generated = `cid_${Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')}`;
+  writeStorage(CLIENT_ID_STORAGE_KEY, generated);
+  return generated;
+}
 
 interface UseRoomConnectionReturn {
   screen: Screen;
@@ -34,8 +63,13 @@ interface UseRoomConnectionReturn {
   inputRoomCode: string;
   setInputRoomCode: (c: string) => void;
   roomCode: string;
-  error: string;
-  connectionStatus: string;
+  error: RoomError | null;
+  clearError: () => void;
+  pendingAction: EntryAction | null;
+  handleCancelEntry: () => void;
+  sessionKey: number;
+  clockOffsetMs: number | null;
+  connectionStatus: ConnectionStatus;
   localToast: string;
   myId: string;
   isSpectator: boolean;
@@ -66,26 +100,25 @@ interface UseRoomConnectionReturn {
 }
 
 export function useRoomConnection(): UseRoomConnectionReturn {
+  const { t } = useLanguage();
   const [screen, setScreen] = useState<Screen>('lobby');
-  const [playerName, setPlayerName] = useState(() => {
-    if (typeof window === 'undefined') return '';
-    return window.localStorage.getItem(PLAYER_NAME_STORAGE_KEY) ?? '';
-  });
+  const [playerName, setPlayerName] = useState('');
   const [roomCode, setRoomCode] = useState('');
-  // Read room code from URL
-  const [initialRoomCode] = useState(() => {
-    if (typeof window === 'undefined') return '';
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get('room');
-    return code ? code.toUpperCase() : '';
-  });
-  const [inputRoomCode, setInputRoomCode] = useState(initialRoomCode);
-  const [error, setError] = useState('');
+  const [inputRoomCode, setInputRoomCode] = useState('');
+  const [entryHydrated, setEntryHydrated] = useState(false);
+  const [error, setError] = useState<RoomError | null>(null);
+  const [pendingAction, setPendingAction] = useState<EntryAction | null>(null);
+  const [sessionKey, setSessionKey] = useState(0);
+  const sessionRef = useRef(0);
+  const [clockOffsetMs, setClockOffsetMs] = useState<number | null>(null);
+  const entryGate = useRef(new EntryGate());
+  const expectedHostRef = useRef('');
   const [balance, setLocalBalance] = useState(1000);
-  const [gameState, setGameState] = useState<GameState>(createInitialGameState());
-  const [connectionStatus, setConnectionStatus] = useState('');
+  const [gameState, setGameState] = useState<GameState>(() => createInitialGameState());
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('');
   const [localToast, setLocalToast] = useState('');
   const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = useCallback((msg: string) => {
     setLocalToast(msg);
@@ -104,37 +137,73 @@ export function useRoomConnection(): UseRoomConnectionReturn {
   const gameStateRef = useRef(gameState);
   const myIdRef = useRef(myId);
   const lastSyncedBalanceRef = useRef<number | null>(null);
+  const hostPlayerBalancesRef = useRef<Map<string, number>>(new Map());
+  const peerClientMapRef = useRef<Map<string, string>>(new Map());
+  const recordHostPlayerBalance = useCallback((peerId: string, bal: number) => {
+    hostPlayerBalancesRef.current.set(peerId, bal);
+    const cid = peerClientMapRef.current.get(peerId);
+    if (cid) {
+      hostPlayerBalancesRef.current.set(`cid:${cid}`, bal);
+    }
+  }, []);
   // BUG-FIX: Track when a non-host spectator has requested to join as a player.
   // This defers the `isSpectator = false` flip until the host confirms the join
   // via a `game-state-sync` that includes the player. Without this, the UI
   // showed player controls immediately but the game state didn't have the player yet.
   const pendingJoinRef = useRef(false);
-  useEffect(() => { gameStateRef.current = gameState; }, [gameState]);
+  const seatJoinRef = useRef(false);
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setPlayerName(sanitizePlayerName(readStorage(PLAYER_NAME_STORAGE_KEY)) ?? '');
+      const code = new URLSearchParams(window.location.search).get('room') ?? '';
+      setInputRoomCode(code.replace(/\s+/g, '').toUpperCase());
+      setEntryHydrated(true);
+    });
+    const gate = entryGate.current;
+    return () => {
+      active = false;
+      gate.cancel();
+      const connection = p2pRef.current;
+      p2pRef.current = null;
+      connection?.disconnect();
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+      if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current);
+    };
+  }, []);
+  useEffect(() => {
+    gameStateRef.current = gameState;
+    if (isHostRef.current) {
+      for (const [pid, p] of Object.entries(gameState.players)) {
+        recordHostPlayerBalance(pid, p.balance);
+      }
+    }
+  }, [gameState, recordHostPlayerBalance]);
   useEffect(() => { myIdRef.current = myId; }, [myId]);
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (!entryHydrated) return;
 
     const trimmedName = playerName.trim();
     if (trimmedName) {
-      window.localStorage.setItem(PLAYER_NAME_STORAGE_KEY, playerName);
+      writeStorage(PLAYER_NAME_STORAGE_KEY, playerName);
       return;
     }
 
-    window.localStorage.removeItem(PLAYER_NAME_STORAGE_KEY);
-  }, [playerName]);
+    removeStorage(PLAYER_NAME_STORAGE_KEY);
+  }, [entryHydrated, playerName]);
   useEffect(() => {
-    if (connectionStatus !== 'Rejoining for next round...') return;
+    if (connectionStatus !== 'joiningNextRound') return;
     if (!myId || isSpectator) return;
     if (gameState.phase !== 'betting') return;
     if (!gameState.players[myId]) return;
 
     const timeout = window.setTimeout(() => {
-      setConnectionStatus((current) => (current === 'Rejoining for next round...' ? '' : current));
-      showToast('Connected!');
+      setConnectionStatus((current) => (current === 'joiningNextRound' ? '' : current));
     }, 0);
 
     return () => window.clearTimeout(timeout);
-  }, [connectionStatus, gameState.phase, gameState.players, isSpectator, myId, showToast]);
+  }, [connectionStatus, gameState.phase, gameState.players, isSpectator, myId]);
 
   const createPlayerState = useCallback(
     (id: string, name: string, playerBalance: number, waitingForNextRound = false): PlayerState => ({
@@ -148,7 +217,15 @@ export function useRoomConnection(): UseRoomConnectionReturn {
     []
   );
 
-  const resetRoomState = useCallback((nextError = '') => {
+  const resetRoomState = useCallback((nextError: RoomError | null = null) => {
+    entryGate.current.cancel();
+    setPendingAction(null);
+    setClockOffsetMs(null);
+    expectedHostRef.current = '';
+    pendingJoinRef.current = false;
+    seatJoinRef.current = false;
+    sessionRef.current += 1;
+    setSessionKey(sessionRef.current);
     const activeP2P = p2pRef.current;
     p2pRef.current = null;
     activeP2P?.disconnect();
@@ -162,10 +239,14 @@ export function useRoomConnection(): UseRoomConnectionReturn {
     setConnectionStatus('');
     setLocalToast('');
     setCopied(false);
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current);
     isHostRef.current = false;
     setIsHost(false);
     setError(nextError);
     lastSyncedBalanceRef.current = null;
+    hostPlayerBalancesRef.current.clear();
+    peerClientMapRef.current.clear();
   }, []);
 
   // Load balance on mount
@@ -237,8 +318,7 @@ export function useRoomConnection(): UseRoomConnectionReturn {
         case 'insure':
           return playerInsure(prev, playerId);
         case 'decline-insurance':
-          // No-op on game state, just dismiss prompt on client
-          return prev;
+          return playerDeclineInsurance(prev, playerId);
         default:
           return prev;
       }
@@ -248,19 +328,46 @@ export function useRoomConnection(): UseRoomConnectionReturn {
   // Handle P2P messages
   const handleMessage = useCallback(
     (msg: GameMessage) => {
+      if (!isRecord(msg)) return;
+
       switch (msg.type) {
         case 'player-join': {
           if (!isHostRef.current) break; // Only the host seats players
           const peerId = msg.senderId;
-          const payload = msg.payload as { name?: unknown; balance?: unknown };
+          if (!isRecord(msg.payload)) break;
+          const payload = msg.payload as { name?: unknown; balance?: unknown; clientId?: unknown };
           const name = sanitizePlayerName(payload?.name);
-          const pBalance = sanitizeJoinBalance(payload?.balance);
           if (!name) break; // Malformed join — ignore
+
+          const clientId = sanitizeClientId(payload?.clientId);
+          if (clientId) {
+            peerClientMapRef.current.set(peerId, clientId);
+          }
+          const recordedByClient = clientId ? hostPlayerBalancesRef.current.get(`cid:${clientId}`) : undefined;
+          const recordedByPeer = hostPlayerBalancesRef.current.get(peerId);
+          const recordedBalance = recordedByClient ?? recordedByPeer;
+          const rawBalance = recordedBalance !== undefined ? recordedBalance : sanitizeJoinBalance(payload?.balance);
+          const pBalance = rawBalance <= 0 && recordedBalance !== undefined ? 100 : rawBalance;
+          recordHostPlayerBalance(peerId, pBalance);
+
           // A re-sent join must not reset a live seat (it would refund a bet
           // the host already applied and restore a client-declared balance).
           if (gameStateRef.current.players[peerId]) break;
+          if (Object.keys(gameStateRef.current.players).length >= MAX_TABLE_SEATS) {
+            p2pRef.current?.sendTo(peerId, {
+              type: 'game-state-sync',
+              payload: sanitizeStateForBroadcast(gameStateRef.current),
+              senderId: 'host',
+            });
+            p2pRef.current?.sendTo(peerId, {
+              type: 'room-settings-sync',
+              payload: gameStateRef.current.settings,
+              senderId: 'host',
+            });
+            break;
+          }
           setGameState((prev) => {
-            if (prev.players[peerId]) return prev;
+            if (prev.players[peerId] || Object.keys(prev.players).length >= MAX_TABLE_SEATS) return prev;
             const joiningMidRound = prev.tableOpen && prev.phase !== 'betting';
             return {
               ...prev,
@@ -288,6 +395,7 @@ export function useRoomConnection(): UseRoomConnectionReturn {
           break;
         }
         case 'spectator-join': {
+          if (!isRecord(msg.payload)) break;
           const name = sanitizePlayerName((msg.payload as { name?: unknown })?.name);
           if (name) showToast(`${name} is spectating`);
           // Send targeted initial game state to the spectator so they see the
@@ -303,14 +411,17 @@ export function useRoomConnection(): UseRoomConnectionReturn {
         }
         case 'player-bet': {
           if (!isHostRef.current) break; // Only host processes bets
+          if (!isRecord(msg.payload)) break;
           const { playerId, bet } = msg.payload as { playerId?: unknown; bet?: unknown };
-          if (playerId !== msg.senderId) break;
+          if (typeof playerId !== 'string' || playerId !== msg.senderId) break;
           setGameState((prev) => {
-            if (prev.phase !== 'betting') return prev;
+            if (!isBettingOpen(prev)) return prev;
             const player = prev.players[msg.senderId];
             if (!player) return prev;
             if (player.ready) return prev;
             if (!isValidBet(bet, player.balance)) return prev;
+            const remainingBalance = player.balance - (bet as number);
+            recordHostPlayerBalance(msg.senderId, remainingBalance);
             return {
               ...prev,
               tableMessage: undefined,
@@ -318,8 +429,8 @@ export function useRoomConnection(): UseRoomConnectionReturn {
                 ...prev.players,
                 [msg.senderId]: {
                   ...player,
-                  hands: [{ ...player.hands[0], bet }],
-                  balance: player.balance - bet,
+                  hands: [{ ...player.hands[0], bet: bet as number }],
+                  balance: remainingBalance,
                   ready: true,
                 },
               },
@@ -329,8 +440,10 @@ export function useRoomConnection(): UseRoomConnectionReturn {
         }
         case 'player-action': {
           if (!isHostRef.current) break; // Only host processes actions
-          const { playerId, action } = msg.payload as { playerId: string; action: PlayerActionKind };
-          if (playerId !== msg.senderId) break;
+          if (!isRecord(msg.payload)) break;
+          const { playerId, action } = msg.payload as { playerId?: unknown; action?: unknown };
+          if (typeof playerId !== 'string' || playerId !== msg.senderId) break;
+          if (!isValidPlayerAction(action)) break;
           if (gameStateRef.current.phase !== 'playing') break;
           applyActionOnHost(playerId, action);
           break;
@@ -338,19 +451,22 @@ export function useRoomConnection(): UseRoomConnectionReturn {
         case 'game-state-sync': {
           // Non-host receives canonical state from host
           if (!isHostRef.current) {
-            const nextState = msg.payload as GameState;
+            const expectedHostId = expectedHostRef.current;
+            if (expectedHostId && msg.senderId !== expectedHostId) break;
+            if (!isValidGameStateSync(msg.payload)) break;
+            const nextState = msg.payload;
             setGameState(nextState);
             // Clear connection banners (e.g. "Waiting for leader...") when the
             // table opens for the first time.
             if (nextState.tableOpen) {
               setConnectionStatus((s) =>
-                s === 'Waiting for leader...' || s === 'Connecting...' ? '' : s
+                s === 'waitingForHost' || s === 'connecting' ? '' : s
               );
             }
             const currentMyId = myIdRef.current;
             const me = currentMyId ? nextState.players[currentMyId] : undefined;
             if (me) {
-              const nextBalance = me.balance <= 0 ? 100 : me.balance;
+              const nextBalance = nextState.phase === 'results' && me.balance <= 0 ? 100 : me.balance;
               // Always reconcile the displayed balance with the canonical value,
               // even if it matches what we last persisted — an optimistic local
               // update (e.g. a double/split the host ends up rejecting) can drift
@@ -379,7 +495,10 @@ export function useRoomConnection(): UseRoomConnectionReturn {
         }
         case 'room-settings-sync': {
           if (!isHostRef.current) {
-            const settings = msg.payload as RoomSettings;
+            const expectedHostId = expectedHostRef.current;
+            if (expectedHostId && msg.senderId !== expectedHostId) break;
+            const settings = sanitizeRoomSettings(msg.payload);
+            if (!settings) break;
             setRoomSettings(settings);
             setGameState((prev) => ({ ...prev, settings }));
           }
@@ -387,17 +506,24 @@ export function useRoomConnection(): UseRoomConnectionReturn {
         }
         case 'new-round': {
           if (!isHostRef.current) {
-            if (msg.senderId !== gameStateRef.current.hostId) break;
+            const expectedHostId = expectedHostRef.current;
+            if (expectedHostId && msg.senderId !== expectedHostId) break;
             setGameState((prev) => (prev.phase === 'results' ? startNewRound(prev) : prev));
           }
           break;
         }
         case 'player-leave': {
+          if (!isHostRef.current) break;
           // A peer may only remove itself; the seat name comes from our own
           // state, never from the untrusted payload.
+          if (!isRecord(msg.payload)) break;
           const { playerId } = msg.payload as { playerId?: unknown };
-          if (playerId !== msg.senderId) break;
-          const name = gameStateRef.current.players[msg.senderId]?.name;
+          if (typeof playerId !== 'string' || playerId !== msg.senderId) break;
+          const existing = gameStateRef.current.players[msg.senderId];
+          if (existing) {
+            recordHostPlayerBalance(msg.senderId, existing.balance);
+          }
+          const name = existing?.name;
           setGameState((prev) => {
             if (!prev.players[msg.senderId]) return prev;
             const newPlayers = { ...prev.players };
@@ -408,9 +534,15 @@ export function useRoomConnection(): UseRoomConnectionReturn {
           break;
         }
         case 'player-spectate': {
+          if (!isHostRef.current) break;
+          if (!isRecord(msg.payload)) break;
           const { playerId } = msg.payload as { playerId?: unknown };
-          if (playerId !== msg.senderId) break;
-          const name = gameStateRef.current.players[msg.senderId]?.name;
+          if (typeof playerId !== 'string' || playerId !== msg.senderId) break;
+          const existing = gameStateRef.current.players[msg.senderId];
+          if (existing) {
+            recordHostPlayerBalance(msg.senderId, existing.balance);
+          }
+          const name = existing?.name;
           setGameState((prev) => {
             if (!prev.players[msg.senderId]) return prev;
             const newPlayers = { ...prev.players };
@@ -422,11 +554,12 @@ export function useRoomConnection(): UseRoomConnectionReturn {
         }
       }
     },
-    [applyActionOnHost, createPlayerState, showToast]
+    [applyActionOnHost, createPlayerState, recordHostPlayerBalance, showToast]
   );
 
   const attachPeerListeners = useCallback((p2p: P2PConnection) => {
-    p2p.onMessage(handleMessage);
+    p2p.onMessage((message) => { if (p2pRef.current === p2p) handleMessage(message); });
+    p2p.onClockSync((offset) => { if (p2pRef.current === p2p && !isHostRef.current) setClockOffsetMs(offset); });
     p2p.onPeerDisconnect((peerId) => {
       if (p2pRef.current !== p2p) return;
 
@@ -437,6 +570,9 @@ export function useRoomConnection(): UseRoomConnectionReturn {
         // act for, blocking the round. The state broadcast is handled
         // automatically by the game-state-sync effect once this commits.
         const leaving = gameStateRef.current.players[peerId];
+        if (leaving) {
+          recordHostPlayerBalance(peerId, leaving.balance);
+        }
         setGameState((prev) => {
           if (!prev.players[peerId]) return prev;
           const newPlayers = { ...prev.players };
@@ -448,10 +584,10 @@ export function useRoomConnection(): UseRoomConnectionReturn {
       }
 
       if (p2p.connectedPeers.length === 0) {
-        resetRoomState('The leader left. The room has been closed.');
+        resetRoomState({ field: 'connection', code: 'hostLeft' });
       }
     });
-  }, [handleMessage, resetRoomState, showToast]);
+  }, [handleMessage, recordHostPlayerBalance, resetRoomState, showToast]);
 
   // Send an action intent (non-host sends to host; host applies directly)
   const sendAction = useCallback((action: PlayerActionKind) => {
@@ -470,7 +606,7 @@ export function useRoomConnection(): UseRoomConnectionReturn {
   const sendBet = useCallback((bet: number) => {
     if (isHostRef.current) {
       setGameState((prev) => {
-        if (prev.phase !== 'betting') return prev;
+        if (!isBettingOpen(prev)) return prev;
         const player = prev.players[myId];
         if (!player || player.ready) return prev;
         if (!isValidBet(bet, player.balance)) return prev;
@@ -507,97 +643,100 @@ export function useRoomConnection(): UseRoomConnectionReturn {
 
   // ==================== Room Management ====================
 
-  const handleCreateRoom = useCallback(async () => {
-    if (!playerName.trim()) { setError('Enter your name!'); return; }
-    setError('');
+  const clearError = useCallback(() => setError(null), []);
+
+  const handleCancelEntry = useCallback(() => {
+    entryGate.current.cancel();
+    const connection = p2pRef.current;
+    p2pRef.current = null;
+    connection?.disconnect();
+    expectedHostRef.current = '';
+    isHostRef.current = false;
+    setIsHost(false);
+    setPendingAction(null);
+    setConnectionStatus('');
+    setClockOffsetMs(null);
+    setError(null);
+  }, []);
+
+  const enterRoom = useCallback(async (action: EntryAction, spectator = false) => {
+    const attempt = entryGate.current.begin();
+    if (attempt === null) return;
+    let connection: P2PConnection | null = null;
+    setPendingAction(action);
+    setError(null);
     try {
-      const p2p = new P2PConnection();
-      p2pRef.current = p2p;
-      const code = await p2p.createRoom();
-      setRoomCode(code);
-      const peerId = p2p.peerId;
+      const name = sanitizePlayerName(playerName);
+      if (!name) { setError({ field: 'name', code: 'nameRequired' }); return; }
+      const code = inputRoomCode.trim().toUpperCase();
+      if (action === 'join' && !ROOM_CODE_PATTERN.test(code)) {
+        setError({ field: 'roomCode', code: 'invalidRoomCode' }); return;
+      }
+      const bal = await getBalance();
+      if (!entryGate.current.isCurrent(attempt)) return;
+      if (action !== 'solo') {
+        connection = new P2PConnection();
+        p2pRef.current = connection;
+        expectedHostRef.current = action === 'join' ? `blackjack-${code}` : '';
+        attachPeerListeners(connection);
+        setConnectionStatus('connecting');
+      }
+      const createdCode = action === 'create' ? await connection!.createRoom() : '';
+      if (action === 'join') await connection!.joinRoom(code, spectator);
+      if (!entryGate.current.isCurrent(attempt)) { connection?.disconnect(); return; }
+
+      const peerId = connection?.peerId ?? 'solo-player';
       myIdRef.current = peerId;
       setMyId(peerId);
-      isHostRef.current = true;
-      setIsHost(true);
-      attachPeerListeners(p2p);
-      const bal = await getBalance();
+      const host = action !== 'join';
+      isHostRef.current = host;
+      setIsHost(host);
+      setClockOffsetMs(host ? 0 : connection!.clockOffsetMs);
+      setPlayerName(name);
       setLocalBalance(bal);
       lastSyncedBalanceRef.current = bal;
-      setGameState({
-        ...createInitialGameState(roomSettings),
-        hostId: peerId,
-        hostName: playerName,
-        players: {
-          [peerId]: createPlayerState(peerId, playerName, bal),
-        },
-      });
-      setScreen('waiting');
-      setConnectionStatus('Waiting for players...');
-    } catch (err) {
-      setError(`Failed to create room: ${err}`);
-    }
-  }, [attachPeerListeners, createPlayerState, playerName, roomSettings]);
-
-  const handleJoinRoom = useCallback(async (spectator = false) => {
-    if (!playerName.trim()) { setError('Enter your name!'); return; }
-    if (!inputRoomCode.trim()) { setError('Enter room code!'); return; }
-    setError('');
-    setConnectionStatus('Connecting...');
-    try {
-      const p2p = new P2PConnection();
-      p2pRef.current = p2p;
-      attachPeerListeners(p2p);
-      await p2p.joinRoom(inputRoomCode.trim(), spectator);
-      const peerId = p2p.peerId;
-      myIdRef.current = peerId;
-      setMyId(peerId);
-      isHostRef.current = false;
-      setIsHost(false);
-      setRoomCode(inputRoomCode.trim().toUpperCase());
-      setIsSpectator(spectator);
-      if (spectator) {
-        p2p.send({ type: 'spectator-join', payload: { name: playerName }, senderId: peerId });
+      sessionRef.current += 1;
+      setSessionKey(sessionRef.current);
+      setIsSpectator(action === 'join' && spectator);
+      setRoomCode(action === 'create' ? createdCode : action === 'join' ? code : '');
+      if (host) {
+        recordHostPlayerBalance(peerId, bal);
+        const initial = {
+          ...createInitialGameState(roomSettings),
+          tableOpen: action === 'solo', hostId: peerId, hostName: name,
+          players: { [peerId]: createPlayerState(peerId, name, bal) },
+        };
+        gameStateRef.current = initial;
+        setGameState(initial);
       } else {
-        const bal = await getBalance();
-        setLocalBalance(bal);
-        lastSyncedBalanceRef.current = bal;
-        p2p.send({ type: 'player-join', payload: { name: playerName, balance: bal, peerId }, senderId: peerId });
+        const clientId = getOrCreateClientId();
+        connection!.send({
+          type: spectator ? 'spectator-join' : 'player-join',
+          payload: spectator ? { name, clientId } : { name, balance: bal, peerId, clientId }, senderId: peerId,
+        });
       }
-      setScreen('waiting');
-      setConnectionStatus(spectator ? 'Spectating' : 'Waiting for leader...');
-    } catch (err) {
-      setError(`Failed to join: ${err}`);
+      setScreen(action === 'solo' ? 'game' : 'waiting');
+      setConnectionStatus(action === 'solo' ? '' : action === 'create' ? 'waitingForPlayers' : spectator ? 'spectating' : 'waitingForHost');
+    } catch (cause) {
+      if (!entryGate.current.isCurrent(attempt)) return;
+      if (p2pRef.current === connection) p2pRef.current = null;
+      connection?.disconnect();
       setConnectionStatus('');
+      setError({ field: 'connection', code: action === 'create' ? 'createFailed'
+        : cause instanceof Error && /timeout|peer-unavailable|room not found/i.test(cause.message) ? 'roomNotFound' : 'joinFailed' });
+    } finally {
+      if (entryGate.current.finish(attempt)) setPendingAction(null);
     }
-  }, [attachPeerListeners, inputRoomCode, playerName]);
+  }, [attachPeerListeners, createPlayerState, inputRoomCode, playerName, recordHostPlayerBalance, roomSettings]);
 
-  const handlePlaySolo = useCallback(async () => {
-    if (!playerName.trim()) { setError('Enter your name!'); return; }
-    setError('');
-    myIdRef.current = 'solo-player';
-    setMyId('solo-player');
-    isHostRef.current = true;
-    setIsHost(true);
-    const bal = await getBalance();
-    setLocalBalance(bal);
-    lastSyncedBalanceRef.current = bal;
-    setGameState({
-      ...createInitialGameState(roomSettings),
-      tableOpen: true,
-      hostId: 'solo-player',
-      hostName: playerName,
-      players: {
-        'solo-player': createPlayerState('solo-player', playerName, bal),
-      },
-    });
-    setScreen('game');
-  }, [createPlayerState, playerName, roomSettings]);
+  const handleCreateRoom = useCallback(() => enterRoom('create'), [enterRoom]);
+  const handleJoinRoom = useCallback((spectator = false) => enterRoom('join', spectator), [enterRoom]);
+  const handlePlaySolo = useCallback(() => enterRoom('solo'), [enterRoom]);
 
   const handleStartGame = useCallback(() => {
     if (!isHostRef.current) return;
 
-    setGameState((prev) => (prev.tableOpen ? prev : { ...prev, tableOpen: true }));
+    setGameState((prev) => (prev.tableOpen ? prev : { ...prev, tableOpen: true, phaseStartedAt: Date.now(), turnStartedAt: Date.now() }));
 
     setScreen('game');
     setConnectionStatus('');
@@ -623,6 +762,10 @@ export function useRoomConnection(): UseRoomConnectionReturn {
     if (isSpectator) return;
 
     if (isHostRef.current) {
+      const existing = gameStateRef.current.players[myId];
+      if (existing) {
+        recordHostPlayerBalance(myId, existing.balance);
+      }
       setGameState((prev) => {
         const newPlayers = { ...prev.players };
         delete newPlayers[myId];
@@ -638,18 +781,27 @@ export function useRoomConnection(): UseRoomConnectionReturn {
     }
 
     setIsSpectator(true);
-    setConnectionStatus('Spectating');
-  }, [myId, playerName, isSpectator]);
+    setConnectionStatus('spectating');
+  }, [myId, playerName, isSpectator, recordHostPlayerBalance]);
 
   const handleJoinFromSpectator = useCallback(async () => {
-    if (!isSpectator) return;
-    const bal = await getBalance();
+    if (!isSpectator || pendingJoinRef.current || seatJoinRef.current) return;
+    const session = sessionRef.current;
+    seatJoinRef.current = true;
+    const walletBal = await getBalance();
+    if (session !== sessionRef.current) return;
+    seatJoinRef.current = false;
+
+    const recordedHostBal = isHostRef.current ? hostPlayerBalancesRef.current.get(myId) : undefined;
+    const rawBal = recordedHostBal !== undefined ? recordedHostBal : walletBal;
+    const bal = rawBal <= 0 ? 100 : rawBal;
     setLocalBalance(bal);
     lastSyncedBalanceRef.current = bal;
 
     const waitingForNextRound = gameStateRef.current.tableOpen && gameStateRef.current.phase !== 'betting';
 
     if (isHostRef.current) {
+      recordHostPlayerBalance(myId, bal);
       setGameState((prev) => ({
         ...prev,
         players: {
@@ -659,6 +811,7 @@ export function useRoomConnection(): UseRoomConnectionReturn {
       }));
       // Host has authoritative state — safe to flip immediately
       setIsSpectator(false);
+      pendingJoinRef.current = false;
     } else if (p2pRef.current) {
       // BUG-FIX: Instead of immediately setting isSpectator(false), mark a
       // pending join. The actual flip happens in the `game-state-sync` handler
@@ -666,24 +819,30 @@ export function useRoomConnection(): UseRoomConnectionReturn {
       // window where the UI shows player controls but the game state has no
       // player entry — causing broken rendering (no hands, no bet panel).
       pendingJoinRef.current = true;
-      p2pRef.current.send({ type: 'player-join', payload: { name: playerName, balance: bal, peerId: myId }, senderId: myId });
+      const clientId = getOrCreateClientId();
+      p2pRef.current.send({ type: 'player-join', payload: { name: playerName, balance: bal, peerId: myId, clientId }, senderId: myId });
     }
 
     if (waitingForNextRound) {
-      setConnectionStatus('Rejoining for next round...');
+      setConnectionStatus('joiningNextRound');
     } else {
       setConnectionStatus('');
-      showToast('Connected!');
     }
-  }, [createPlayerState, isSpectator, myId, playerName, showToast]);
+  }, [createPlayerState, isSpectator, myId, playerName, recordHostPlayerBalance]);
 
   const handleCopyLink = useCallback(() => {
-    const url = `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
-    navigator.clipboard.writeText(url).then(() => {
+    const url = new URL(window.location.pathname, window.location.origin);
+    url.searchParams.set('room', roomCode);
+    const copy = async () => {
+      if (!navigator.clipboard) throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(url.href);
+    };
+    void copy().then(() => {
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }, [roomCode]);
+      if (copiedTimeoutRef.current) clearTimeout(copiedTimeoutRef.current);
+      copiedTimeoutRef.current = setTimeout(() => setCopied(false), 2000);
+    }).catch(() => showToast(t.entry.copyFailed));
+  }, [roomCode, showToast, t.entry.copyFailed]);
 
   const resolvedScreen = screen === 'lobby' ? 'lobby' : gameState.tableOpen ? 'game' : 'waiting';
 
@@ -691,7 +850,7 @@ export function useRoomConnection(): UseRoomConnectionReturn {
     screen: resolvedScreen, setScreen,
     playerName, setPlayerName,
     inputRoomCode, setInputRoomCode,
-    roomCode, error, connectionStatus, localToast,
+    roomCode, error, clearError, pendingAction, handleCancelEntry, sessionKey, clockOffsetMs, connectionStatus, localToast,
     myId, isSpectator,
     isHost,
     gameState, setGameState,

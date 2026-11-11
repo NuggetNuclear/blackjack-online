@@ -22,21 +22,22 @@ const CHIP_COLORS: Record<number, { bg: string; border: string; text: string; ri
 export default function Chip({ value, selected, onClick, disabled, size = 'md', animated = false, animIndex = 0 }: ChipProps) {
   const colors = CHIP_COLORS[value] || CHIP_COLORS[5];
   const sizeClasses = {
-    sm: 'w-11 h-11 text-[9px]',
-    md: 'w-[60px] h-[60px] text-xs',
-    lg: 'w-20 h-20 text-sm',
+    sm: 'w-10 h-10 text-[9px]',
+    md: 'w-12 h-12 text-[11px] sm:w-[58px] sm:h-[58px] sm:text-xs',
+    lg: 'w-16 h-16 text-xs sm:w-20 sm:h-20 sm:text-sm',
   };
 
   const label = value >= 1000 ? `${value / 1000}K` : `$${value}`;
 
   return (
     <button
+      type="button"
       onClick={onClick}
       disabled={disabled}
       className={`${sizeClasses[size]} rounded-full font-bold flex items-center justify-center
-        border-[4px] transition-all duration-100 relative
-        ${selected ? 'scale-115 ring-3 ring-offset-2 ring-offset-green-900' : ''}
-        ${disabled ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer hover:scale-115 active:scale-90'}
+        border-[3px] sm:border-[4px] transition-all duration-100 relative tabular-nums shrink-0
+        ${selected ? 'scale-110 ring-3 ring-offset-2 ring-offset-green-900' : ''}
+        ${disabled ? 'opacity-30 cursor-not-allowed' : 'cursor-pointer hover:scale-110 active:scale-95'}
         ${animated ? 'animate-chip-slide' : ''}
       `}
       style={{
@@ -57,7 +58,7 @@ export default function Chip({ value, selected, onClick, disabled, size = 'md', 
           WebkitMask: 'radial-gradient(circle, transparent 55%, black 55%, black 80%, transparent 80%)',
         }} />
       {/* Inner ring */}
-      <span className="absolute inset-[7px] rounded-full border-[2px] flex items-center justify-center"
+      <span className="absolute inset-[5px] sm:inset-[7px] rounded-full border-[1.5px] sm:border-[2px] flex items-center justify-center"
         style={{ borderColor: `${colors.ring}70` }}>
         <span className="font-bold text-outline-sm">{label}</span>
       </span>
@@ -84,14 +85,14 @@ export function ChipStack({ total, small = false }: { total: number; small?: boo
   const stackSpacing = small ? 'gap-0.5' : 'gap-1.5';
 
   return (
-    <div className="relative flex flex-col items-center mt-2 w-full">
+    <div className="relative flex flex-col items-center mt-1 sm:mt-1.5 w-full">
       <div className={`relative flex items-end justify-center ${stackSpacing}`}>
         {activeDenoms.map((denom, stackIdx) => {
           const count = counts[denom];
-          const displayCount = Math.min(count, 8); // Max 8 chips high visually per stack
-          const sz = small ? 'w-6 h-6 text-[5px]' : 'w-8 h-8 text-[6px]';
-          const heightBase = small ? 24 : 32;
-          const stackHeight = heightBase + (displayCount - 1) * 3;
+          const displayCount = Math.min(count, 6); // Max 6 chips high visually per stack
+          const sz = small ? 'w-5 h-5 text-[5px]' : 'w-6 h-6 sm:w-7 sm:h-7 text-[6px]';
+          const heightBase = small ? 20 : 24;
+          const stackHeight = heightBase + (displayCount - 1) * 2.5;
           const c = CHIP_COLORS[denom] || CHIP_COLORS[5];
 
           return (
@@ -104,7 +105,7 @@ export function ChipStack({ total, small = false }: { total: number; small?: boo
                     backgroundColor: c.bg,
                     borderColor: c.border,
                     color: c.text,
-                    bottom: `${i * 3}px`,
+                    bottom: `${i * 2.5}px`,
                     zIndex: i,
                     boxShadow: `0 1px 0 ${c.border}, 0 2px 4px rgba(0,0,0,0.4)`,
                     animationDelay: `${(stackIdx * 3 + i) * 0.04}s`,
@@ -114,7 +115,7 @@ export function ChipStack({ total, small = false }: { total: number; small?: boo
               ))}
               {/* Show total count badge if more than 1 chip */}
               {count > 1 && (
-                <div className="absolute -top-3 bg-black/80 text-white rounded px-1 text-[8px] font-bold z-50 animate-fade-in"
+                <div className="absolute -top-2.5 bg-black/80 text-white rounded px-1 text-[8px] font-bold z-50 animate-fade-in tabular-nums"
                   style={{ animationDelay: `${(stackIdx * 3 + displayCount) * 0.04}s`, animationFillMode: 'both' }}>
                   x{count}
                 </div>
@@ -123,7 +124,7 @@ export function ChipStack({ total, small = false }: { total: number; small?: boo
           );
         })}
       </div>
-      <span className="text-yellow-300 text-[11px] font-bold mt-1 text-outline-sm whitespace-nowrap">
+      <span className="text-yellow-300 text-[10px] sm:text-[11px] font-bold mt-0.5 text-outline-sm whitespace-nowrap tabular-nums">
         ${total.toLocaleString()}
       </span>
     </div>

@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useId, useRef } from 'react';
 import { useLanguage } from '@/shared/i18n/useLanguage';
 
 interface ConfirmModalProps {
@@ -9,39 +10,34 @@ interface ConfirmModalProps {
   onCancel: () => void;
 }
 
-/**
- * In-game confirmation modal replacing window.confirm().
- * Uses backdrop blur overlay + animated casino-styled panel.
- */
 export default function ConfirmModal({ title, message, onConfirm, onCancel }: ConfirmModalProps) {
   const { t } = useLanguage();
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const descriptionId = useId();
+  useEffect(() => {
+    const previousFocus = document.activeElement;
+    const dialog = dialogRef.current;
+    dialog?.showModal();
+    return () => {
+      dialog?.close();
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
+    };
+  }, []);
 
   return (
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fade-in"
-      onClick={onCancel}
-    >
-      <div
-        className="mx-4 w-full max-w-sm rounded-3xl border-2 border-yellow-500/40 bg-gray-900/95 p-6 shadow-[0_0_60px_rgba(234,179,8,0.15)] animate-bounce-in"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="text-center text-lg font-bold text-yellow-100 text-outline-sm">{title}</h3>
-        <p className="mt-3 text-center text-sm leading-relaxed text-white/70">{message}</p>
+    <dialog ref={dialogRef} aria-labelledby={titleId} aria-describedby={descriptionId}
+      onCancel={(event) => { event.preventDefault(); onCancel(); }}
+      onClick={(event) => { if (event.target === event.currentTarget) onCancel(); }}
+      className="m-auto w-[calc(100%_-_2rem)] max-w-sm rounded-3xl border border-[#416e4e] bg-[#0a2719] p-0 text-white shadow-2xl backdrop:bg-black/75 backdrop:backdrop-blur-sm">
+      <div className="p-6">
+        <h2 id={titleId} className="text-center text-lg font-bold text-[#f3e6b3]">{title}</h2>
+        <p id={descriptionId} className="mt-3 text-center text-sm leading-relaxed text-white/80">{message}</p>
         <div className="mt-5 flex gap-3">
-          <button
-            onClick={onCancel}
-            className="btn-cartoon flex-1 border-gray-700 bg-gray-600 py-3 text-sm text-white/80 hover:bg-gray-500"
-          >
-            {t.common.cancel}
-          </button>
-          <button
-            onClick={onConfirm}
-            className="btn-cartoon flex-1 border-red-700 bg-red-500 py-3 text-sm text-white hover:bg-red-400"
-          >
-            {t.common.confirm}
-          </button>
+          <button type="button" onClick={onCancel} className="btn-cartoon min-h-11 flex-1 border-[#355a41] bg-[#163824] py-2.5 text-sm text-white hover:bg-[#1e4930]">{t.common.cancel}</button>
+          <button type="button" onClick={onConfirm} className="btn-cartoon min-h-11 flex-1 border-red-700/80 bg-red-800/90 py-2.5 text-sm text-white hover:bg-red-700">{t.common.confirm}</button>
         </div>
       </div>
-    </div>
+    </dialog>
   );
 }

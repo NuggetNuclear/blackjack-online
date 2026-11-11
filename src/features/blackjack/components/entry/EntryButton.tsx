@@ -16,7 +16,7 @@ export default function EntryButton({
   variant = 'secondary',
   ...props
 }: EntryButtonProps) {
-  const classes = ['entry-button', `entry-button--${variant}`, className].filter(Boolean).join(' ');
+  const classes = ['btn-cartoon', 'entry-button', `entry-button--${variant}`, className].filter(Boolean).join(' ');
 
   return (
     <button type={type} className={classes} {...props}>

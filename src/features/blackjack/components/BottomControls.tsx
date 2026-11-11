@@ -34,6 +34,7 @@ interface BottomControlsProps {
   onConfirmBet: () => void;
   onAllIn: () => void;
   onNewRound: () => void;
+  onJoinFromSpectator?: () => void;
 }
 
 export default function BottomControls({
@@ -44,24 +45,38 @@ export default function BottomControls({
   nextRoundProgress, nextRoundSecondsLeft,
   playerActionSecondsLeft, playerActionProgress,
   onHit, onStand, onDouble, onSplit, onSurrender,
-  onConfirmBet, onAllIn, onNewRound,
+  onConfirmBet, onAllIn, onNewRound, onJoinFromSpectator,
 }: BottomControlsProps) {
   const { t } = useLanguage();
   const activeHand = myPlayer?.hands[myPlayer.activeHandIndex];
 
   return (
-    <div className="relative z-30 flex flex-col items-center gap-3" style={{ marginBottom: `${20 + bottomOffset}px` }}>
+    <div
+      className="relative z-30 flex flex-col items-center gap-2 sm:gap-2.5 px-2 pb-[max(12px,env(safe-area-inset-bottom))]"
+      style={{ marginBottom: `${bottomOffset}px` }}
+    >
+      {/* Spectator CTA docked cleanly at the bottom instead of covering the table center */}
+      {isSpectator && onJoinFromSpectator && (
+        <button
+          type="button"
+          onClick={onJoinFromSpectator}
+          className="btn-cartoon min-h-[46px] px-8 py-2.5 bg-yellow-400 hover:bg-yellow-300 text-gray-950 text-sm sm:text-base font-bold border-yellow-700 shadow-xl animate-bounce-in"
+        >
+          {t.table.joinGame}
+        </button>
+      )}
+
       {/* Betting countdown with visual ring */}
       {gameState.phase === 'betting' && (
         <RoundTimerFrame progress={bettingProgress}>
-          <div className={`rounded-full px-5 py-2 text-[12px] font-bold uppercase tracking-[0.24em] text-white shadow-xl ${
+          <div className={`rounded-full px-4 py-1.5 text-[11px] sm:text-xs font-bold uppercase tracking-[0.18em] text-white shadow-xl tabular-nums ${
             bettingTimeExpired
-              ? 'bg-red-500 border-b-[4px] border-red-700'
-              : 'bg-green-500 border-b-[4px] border-green-700'
+              ? 'bg-red-600 border-b-[3px] border-red-800'
+              : 'bg-[#1c6833] border-b-[3px] border-[#082712]'
           }`}>
             {bettingTimeExpired
-              ? `⏰ ${t.betting.closesIn} 0s`
-              : `⏰ ${t.betting.closesIn} ${bettingSecondsLeft}s`}
+              ? `${t.betting.closesIn} 0s`
+              : `${t.betting.closesIn} ${bettingSecondsLeft}s`}
           </div>
         </RoundTimerFrame>
       )}
@@ -69,17 +84,17 @@ export default function BottomControls({
       {/* Action buttons for active player */}
       {canAct && (
         autoplay.enabled && autoplayRoundActive ? (
-          <div className="text-amber-400/80 text-sm font-bold animate-pulse tracking-wider text-outline-sm">{t.autoplay.active}</div>
+          <div className="text-amber-300/90 text-xs sm:text-sm font-bold animate-pulse tracking-wider text-outline-sm">{t.autoplay.active}</div>
         ) : (
-          <div className="flex flex-col items-center gap-2">
+          <div className="flex flex-col items-center gap-1.5 sm:gap-2">
             {/* Player action countdown */}
             <RoundTimerFrame progress={playerActionProgress}>
-              <div className={`rounded-full border px-3 py-1 text-[10px] font-bold uppercase tracking-[0.2em] ${
+              <div className={`rounded-full border px-3 py-0.5 text-[10px] font-bold uppercase tracking-[0.18em] tabular-nums ${
                 playerActionSecondsLeft <= 3
-                  ? 'border-red-400/30 bg-red-500/15 text-red-200 animate-pulse'
-                  : 'border-amber-300/20 bg-amber-500/10 text-amber-100'
+                  ? 'border-red-400/40 bg-red-500/20 text-red-200 animate-pulse'
+                  : 'border-amber-300/25 bg-black/45 text-amber-100'
               }`}>
-                ⏱ {playerActionSecondsLeft}s
+                {playerActionSecondsLeft}s
               </div>
             </RoundTimerFrame>
             <ActionButtons
@@ -91,7 +106,7 @@ export default function BottomControls({
               canSplit={myPlayer && activeHand ? canSplit(activeHand, myPlayer.balance, gameState.settings, myPlayer.hands.length) : false}
               disabled={!canAct}
               onSurrender={onSurrender}
-              canSurrender={myPlayer && activeHand ? canSurrenderFn(activeHand, gameState.settings.surrenderEnabled) : false}
+              canSurrender={myPlayer && activeHand ? canSurrenderFn(activeHand, gameState.settings.surrenderEnabled, myPlayer.hands.length) : false}
             />
           </div>
         )
@@ -104,26 +119,29 @@ export default function BottomControls({
           bettingTimeExpired={bettingTimeExpired} />
       )}
       {gameState.phase === 'betting' && myPlayer?.ready && !isSpectator && (
-        <div className="text-yellow-300/70 text-sm font-bold animate-pulse text-outline-sm">{t.controls.waitingForPlayers}</div>
+        <div className="text-yellow-300/80 text-xs sm:text-sm font-bold animate-pulse text-outline-sm">{t.controls.waitingForPlayers}</div>
       )}
 
       {/* Results phase: admin-only "New Round" button; non-host sees waiting message */}
       {gameState.phase === 'results' && !isSpectator && !autoplay.enabled && (
-        <div className="flex flex-col items-center gap-2 animate-bounce-in">
-          <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-yellow-200/78 text-outline-sm">
+        <div className="flex flex-col items-center gap-1.5 sm:gap-2 animate-bounce-in">
+          <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-yellow-200/85 text-outline-sm tabular-nums">
             {t.controls.nextRoundIn} {nextRoundSecondsLeft}s
           </div>
           {isHost ? (
             /* Host sees the "New Round" button with timer ring */
-            <RoundTimerFrame progress={nextRoundProgress} rx={8} ry={8} padding="p-1.5">
-              <button onClick={onNewRound}
-                className="btn-cartoon px-10 py-3.5 bg-yellow-400 hover:bg-yellow-300 text-gray-900 text-lg border-yellow-600">
-                🃏 {t.controls.newRound}
+            <RoundTimerFrame progress={nextRoundProgress} rx={8} ry={8} padding="p-1">
+              <button
+                type="button"
+                onClick={onNewRound}
+                className="btn-cartoon min-h-[44px] px-7 sm:px-10 py-2.5 sm:py-3 bg-yellow-400 hover:bg-yellow-300 text-gray-950 text-sm sm:text-base border-yellow-700"
+              >
+                {t.controls.newRound}
               </button>
             </RoundTimerFrame>
           ) : (
             /* Non-host players see a waiting message */
-            <div className="rounded-full bg-yellow-600 border-b-[4px] border-yellow-800 px-6 py-2.5 text-sm font-bold text-yellow-50 shadow-xl uppercase tracking-wider">
+            <div className="rounded-full bg-[#14502a] border-2 border-[#416e4e] px-5 py-2 text-xs sm:text-sm font-bold text-yellow-100 shadow-xl uppercase tracking-wider">
               {t.controls.waitingForNewRound}
             </div>
           )}
@@ -132,7 +150,7 @@ export default function BottomControls({
 
       {/* Results for spectators */}
       {gameState.phase === 'results' && isSpectator && (
-        <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-yellow-200/50 text-outline-sm">
+        <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-yellow-200/65 text-outline-sm tabular-nums">
           {t.controls.nextRoundIn} {nextRoundSecondsLeft}s
         </div>
       )}

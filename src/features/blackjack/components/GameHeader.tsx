@@ -1,13 +1,14 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import AutoplayPanel from '@/features/blackjack/components/AutoplayPanel';
+import CasinoBrand from '@/features/blackjack/components/CasinoBrand';
 import LanguageToggle from '@/features/blackjack/components/LanguageToggle';
 import type { AutoplayConfig } from '@/features/blackjack/types/autoplay';
 import { useLanguage } from '@/shared/i18n/useLanguage';
 import { formatCurrency } from '@/shared/lib/format';
 
-const BOTTOM_OFFSET_OPTIONS = [0, 48, 88] as const;
+const BOTTOM_OFFSET_OPTIONS = [0, 16, 32] as const;
 
 interface GameHeaderProps {
   roomCode: string;
@@ -47,35 +48,43 @@ export default function GameHeader({
   const bottomOffsetLabels = [t.header.edgeOff, t.header.edgeMid, t.header.edgeHigh] as const;
   const toggleLanguage = () => setLanguage(language === 'en' ? 'es' : 'en');
 
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSettingsOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [settingsOpen]);
+
   return (
-    <div className="relative z-20 overflow-visible border-b-4 border-slate-950 bg-slate-900 shadow-xl">
-      <div className="hidden items-center justify-between gap-4 px-4 py-3 sm:flex">
+    <header className="casino-game-header relative z-40 shrink-0 overflow-visible border-b-4 border-[#070f20] bg-[#0f172a] shadow-xl">
+      {/* Desktop / Tablet Bar (>= 640px) */}
+      <div className="hidden items-center justify-between gap-4 px-4 py-2.5 sm:flex">
         <div className="flex items-center gap-2.5">
-          <span className="rounded-full border border-yellow-500/20 bg-yellow-500/10 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.28em] text-yellow-200">
-            {t.header.title}
-          </span>
-          <span className="rounded-full border border-white/10 bg-white/6 px-3 py-1 text-[11px] font-semibold text-white/75">
+          <CasinoBrand compact />
+          <span className="rounded-full border border-white/12 bg-white/8 px-3 py-1 text-[11px] font-semibold text-white/80">
             {t.header.leader}: <span className="text-white">{leaderName}</span>
           </span>
           {roomCode && (
             <button
               type="button"
               onClick={onCopyLink}
-              className="btn-cartoon border-white/10 bg-white/6 px-3 py-1.5 text-[11px] text-white/82 hover:bg-white/12"
+              className="btn-cartoon min-h-[36px] border-[#082712] bg-[#14502a] px-3 py-1 text-[11px] text-white hover:bg-[#1c6833] tabular-nums"
               title="Copy invite link"
             >
               {copied ? t.header.copied : `${t.header.room} ${roomCode}`}
             </button>
           )}
           {isSpectator ? (
-            <span className="rounded-full border border-sky-400/25 bg-sky-500/12 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.22em] text-sky-100">
+            <span className="rounded-full border border-amber-400/30 bg-amber-500/15 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.18em] text-amber-200">
               {t.header.spectating}
             </span>
           ) : (
             <button
               type="button"
               onClick={onSwitchToSpectator}
-              className="btn-cartoon border-indigo-900 bg-indigo-600/75 px-3 py-1.5 text-[11px] text-indigo-50 hover:bg-indigo-500"
+              className="btn-cartoon min-h-[36px] border-[#082712] bg-[#14502a] px-3 py-1 text-[11px] text-white/90 hover:bg-[#1c6833]"
               title="Switch to spectating"
             >
               {t.header.spectate}
@@ -84,7 +93,7 @@ export default function GameHeader({
           <button
             type="button"
             onClick={onExitRoom}
-            className="btn-cartoon border-rose-950 bg-rose-800/85 px-3 py-1.5 text-[11px] text-rose-100 hover:bg-rose-700"
+            className="btn-cartoon min-h-[36px] border-rose-950 bg-rose-800 px-3 py-1 text-[11px] text-rose-50 hover:bg-rose-700"
             title="Leave room"
           >
             {t.header.exit}
@@ -92,9 +101,9 @@ export default function GameHeader({
         </div>
 
         {!isSpectator && (
-          <div className="absolute left-1/2 -translate-x-1/2 rounded-full border-b-[3px] border-emerald-900 bg-emerald-800 px-5 py-2 text-center shadow-lg">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.3em] text-emerald-100/70">{t.common.balance}</div>
-            <div className="text-xl font-bold text-emerald-300 drop-shadow-md">{formatCurrency(balance)}</div>
+          <div className="rounded-full border-b-[3px] border-[#082712] bg-[#14502a] px-4 py-1 text-center shadow-md tabular-nums">
+            <span className="mr-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-100/75">{t.common.balance}</span>
+            <span className="text-base font-bold text-yellow-300">{formatCurrency(balance)}</span>
           </div>
         )}
 
@@ -102,182 +111,155 @@ export default function GameHeader({
           <LanguageToggle
             language={language}
             onToggle={toggleLanguage}
-            className="border-white/12 bg-white/6 hover:bg-white/12"
+            className="min-h-[36px] border-white/12 bg-white/8 hover:bg-white/14"
           />
           {!isSpectator && <AutoplayPanel config={autoplay} onChange={onAutoplayChange} />}
           <div className="relative">
             <button
               type="button"
               onClick={() => setSettingsOpen((open) => !open)}
-              className="btn-cartoon border-white/12 bg-white/6 px-3 py-1.5 text-xs text-white/82 hover:bg-white/12"
+              className="btn-cartoon min-h-[36px] border-white/12 bg-white/8 px-3 py-1 text-xs text-white hover:bg-white/14"
               title={t.header.settings}
               aria-expanded={settingsOpen}
-              aria-haspopup="dialog"
             >
               {t.header.settings}
             </button>
-            {settingsOpen && (
-              <div className="panel-surface absolute top-full right-0 z-[70] mt-3 w-[230px] animate-bounce-in p-4">
-                <div className="mb-3 text-sm font-bold text-white">{t.header.settings}</div>
-                <div className="space-y-3">
-                  <label className="flex items-center justify-between gap-4">
-                    <span className="text-xs font-semibold text-white/80">{t.header.sound}</span>
-                    <button
-                      type="button"
-                      onClick={() => setSoundOn(!soundOn)}
-                      className={`relative h-5 w-10 rounded-full transition-colors ${soundOn ? 'bg-emerald-500' : 'bg-gray-600'}`}
-                      aria-pressed={soundOn}
-                    >
-                      <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${soundOn ? 'left-[22px]' : 'left-0.5'}`} />
-                    </button>
-                  </label>
-                  <div>
-                    <span className="mb-1 block text-xs font-semibold text-white/80">{t.header.edgeOffset}</span>
-                    <div className="flex gap-1">
-                      {BOTTOM_OFFSET_OPTIONS.map((offset, index) => (
-                        <button
-                          key={offset}
-                          type="button"
-                          onClick={() => setBottomOffsetIndex(index)}
-                          className={`btn-cartoon flex-1 py-1 text-[10px] ${
-                            index === bottomOffsetIndex
-                              ? 'border-yellow-700 bg-yellow-500 text-black'
-                              : 'border-gray-800 bg-gray-700 text-white/60'
-                          }`}
-                        >
-                          {bottomOffsetLabels[index]}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSettingsOpen(false)}
-                  className="btn-cartoon mt-3 w-full border-gray-800 bg-gray-700 py-1.5 text-xs text-white/70 hover:bg-gray-600"
-                >
-                  {t.common.close}
-                </button>
-              </div>
-            )}
           </div>
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-2 px-3 py-2 sm:hidden">
-        <div className="flex min-w-0 flex-col items-start gap-1">
-          <span className="rounded-full border border-yellow-500/20 bg-yellow-500/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.22em] text-yellow-200">
-            {t.header.title}
-          </span>
-          <span className="text-[10px] font-semibold text-white/60">{t.header.leader}: {leaderName}</span>
-          {!isSpectator && <span className="text-[11px] font-bold text-emerald-200">{formatCurrency(balance)}</span>}
-          {isSpectator && (
-            <span className="rounded-full border border-sky-400/25 bg-sky-500/12 px-2 py-0.5 text-[9px] font-bold uppercase tracking-[0.18em] text-sky-100">
-              {t.header.spectating}
-            </span>
+      {/* Mobile Compact Bar (< 640px) — 40px+ ergonomic touch targets, zero clutter */}
+      <div className="flex items-center justify-between gap-2 px-3 py-1.5 sm:hidden">
+        <div className="flex min-w-0 items-center gap-2">
+          <CasinoBrand compact />
+          {roomCode && (
+            <button
+              type="button"
+              onClick={onCopyLink}
+              className="btn-cartoon min-h-[36px] shrink-0 border-[#082712] bg-[#14502a] px-2.5 py-1 text-[11px] font-bold text-yellow-200 tabular-nums"
+              title="Copy invite link"
+            >
+              {copied ? t.header.copied : roomCode}
+            </button>
           )}
         </div>
 
-        {!isSpectator && (
-          <div className="flex-shrink-0">
-            <AutoplayPanel config={autoplay} onChange={onAutoplayChange} />
-          </div>
-        )}
-
-        <div className="flex flex-col items-end gap-1">
-          <div className="flex items-center gap-1">
-            <LanguageToggle
-              language={language}
-              onToggle={toggleLanguage}
-              className="border-white/12 bg-white/6 px-2.5 py-1 text-[10px] hover:bg-white/12"
-            />
-            <button
-              type="button"
-              onClick={onExitRoom}
-              className="btn-cartoon border-rose-950 bg-rose-800/90 px-2 py-0.5 text-[9px] text-rose-100"
-              title="Leave room"
-            >
-              {t.header.exit}
-            </button>
-            {!isSpectator && (
-              <button
-                type="button"
-                onClick={onSwitchToSpectator}
-                className="btn-cartoon border-indigo-900 bg-indigo-700/80 px-2 py-0.5 text-[9px] text-indigo-100"
-                title="Switch to spectating"
-              >
-                {t.header.spectate}
-              </button>
-            )}
-            {roomCode && (
-              <button
-                type="button"
-                onClick={onCopyLink}
-                className="btn-cartoon border-white/12 bg-white/6 px-2 py-0.5 text-[9px] text-white/75 hover:bg-white/12"
-                title="Copy invite link"
-              >
-                {copied ? t.header.copied : roomCode}
-              </button>
-            )}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setSettingsOpen((open) => !open)}
-                className="btn-cartoon border-white/12 bg-white/6 px-2 py-0.5 text-[9px] text-white/82 hover:bg-white/12"
-                title={t.header.settings}
-                aria-expanded={settingsOpen}
-                aria-haspopup="dialog"
-              >
-                {t.header.settings}
-              </button>
-              {settingsOpen && (
-                <div className="panel-surface absolute top-full right-0 z-[70] mt-2 w-[190px] animate-bounce-in p-3">
-                  <div className="mb-2 text-xs font-bold text-white">{t.header.settings}</div>
-                  <div className="space-y-2">
-                    <label className="flex items-center justify-between gap-3">
-                      <span className="text-[10px] font-semibold text-white/80">{t.header.sound}</span>
-                      <button
-                        type="button"
-                        onClick={() => setSoundOn(!soundOn)}
-                        className={`relative h-4 w-8 rounded-full transition-colors ${soundOn ? 'bg-emerald-500' : 'bg-gray-600'}`}
-                        aria-pressed={soundOn}
-                      >
-                        <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform ${soundOn ? 'left-[16px]' : 'left-0.5'}`} />
-                      </button>
-                    </label>
-                    <div>
-                      <span className="mb-1 block text-[10px] font-semibold text-white/80">{t.header.edgeOffset}</span>
-                      <div className="grid grid-cols-3 gap-1">
-                        {BOTTOM_OFFSET_OPTIONS.map((offset, index) => (
-                          <button
-                            key={offset}
-                            type="button"
-                            onClick={() => setBottomOffsetIndex(index)}
-                            className={`btn-cartoon py-1 text-[9px] ${
-                              index === bottomOffsetIndex
-                                ? 'border-yellow-700 bg-yellow-500 text-black'
-                                : 'border-gray-800 bg-gray-700 text-white/60'
-                            }`}
-                          >
-                            {bottomOffsetLabels[index]}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setSettingsOpen(false)}
-                    className="btn-cartoon mt-2 w-full border-gray-800 bg-gray-700 py-1 text-[10px] text-white/70"
-                  >
-                    {t.common.close}
-                  </button>
-                </div>
-              )}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {!isSpectator ? (
+            <div className="rounded-full border border-[#416e4e] bg-[#0c321f] px-2.5 py-1 text-xs font-bold text-yellow-300 tabular-nums">
+              {formatCurrency(balance)}
             </div>
-          </div>
+          ) : (
+            <span className="rounded-full border border-amber-400/30 bg-amber-500/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-200">
+              {t.header.spectating}
+            </span>
+          )}
+
+          {!isSpectator && <AutoplayPanel config={autoplay} onChange={onAutoplayChange} />}
+
+          <button
+            type="button"
+            onClick={() => setSettingsOpen((open) => !open)}
+            className="btn-cartoon min-h-[36px] border-white/15 bg-white/10 px-2.5 py-1 text-[11px] text-white"
+            title={t.header.settings}
+            aria-expanded={settingsOpen}
+          >
+            {t.header.settings}
+          </button>
+
+          <button
+            type="button"
+            onClick={onExitRoom}
+            className="btn-cartoon min-h-[36px] border-rose-950 bg-rose-800 px-2.5 py-1 text-[11px] text-rose-50"
+            title="Leave room"
+          >
+            {t.header.exit}
+          </button>
         </div>
       </div>
-    </div>
+
+      {/* Shared Settings Popover / Sheet (with click-outside backdrop) */}
+      {settingsOpen && (
+        <>
+          <div
+            className="fixed inset-0 z-[65] bg-black/35"
+            aria-hidden="true"
+            onClick={() => setSettingsOpen(false)}
+          />
+          <div className="panel-surface fixed right-3 top-14 z-[70] w-[min(90vw,260px)] animate-fade-in p-4 sm:absolute sm:right-4 sm:top-full sm:mt-2">
+            <div className="mb-3 flex items-center justify-between border-b border-white/10 pb-2">
+              <span className="text-sm font-bold text-yellow-200">{t.header.settings}</span>
+              <span className="text-[11px] text-white/70 truncate max-w-[130px]">
+                {t.header.leader}: <strong className="text-white">{leaderName}</strong>
+              </span>
+            </div>
+
+            <div className="space-y-3">
+              <label className="flex items-center justify-between gap-4 min-h-[36px]">
+                <span className="text-xs font-semibold text-white/90">{t.header.sound}</span>
+                <button
+                  type="button"
+                  onClick={() => setSoundOn(!soundOn)}
+                  className={`relative h-6 w-11 rounded-full transition-colors ${soundOn ? 'bg-emerald-500' : 'bg-gray-600'}`}
+                  aria-pressed={soundOn}
+                >
+                  <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${soundOn ? 'left-[22px]' : 'left-0.5'}`} />
+                </button>
+              </label>
+
+              <div className="flex items-center justify-between gap-3 sm:hidden">
+                <span className="text-xs font-semibold text-white/90">EN / ES</span>
+                <LanguageToggle
+                  language={language}
+                  onToggle={toggleLanguage}
+                  className="min-h-[36px] border-white/15 bg-white/10 px-3 py-1 text-xs"
+                />
+              </div>
+
+              {!isSpectator && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSettingsOpen(false);
+                    onSwitchToSpectator();
+                  }}
+                  className="btn-cartoon min-h-[38px] w-full border-[#082712] bg-[#14502a] py-1.5 text-xs text-white hover:bg-[#1c6833] sm:hidden"
+                >
+                  {t.header.spectate}
+                </button>
+              )}
+
+              <div>
+                <span className="mb-1.5 block text-xs font-semibold text-white/85">{t.header.edgeOffset}</span>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {BOTTOM_OFFSET_OPTIONS.map((offset, index) => (
+                    <button
+                      key={offset}
+                      type="button"
+                      onClick={() => setBottomOffsetIndex(index)}
+                      className={`btn-cartoon min-h-[34px] py-1 text-[10px] ${
+                        index === bottomOffsetIndex
+                          ? 'border-yellow-700 bg-yellow-400 text-gray-950'
+                          : 'border-[#082712] bg-[#0c321f] text-white/75'
+                      }`}
+                    >
+                      {bottomOffsetLabels[index]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(false)}
+              className="btn-cartoon mt-3.5 min-h-[38px] w-full border-[#082712] bg-[#14502a] py-1.5 text-xs text-white/90 hover:bg-[#1c6833]"
+            >
+              {t.common.close}
+            </button>
+          </div>
+        </>
+      )}
+    </header>
   );
 }

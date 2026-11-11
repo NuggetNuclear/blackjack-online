@@ -164,7 +164,7 @@ Important implementation note:
 
 ### Shoe replacement
 
-The shoe is primarily replaced at the round boundary: `dealInitialCards()` swaps in a fresh shuffled 6-deck shoe before dealing whenever fewer than `RESHUFFLE_THRESHOLD` (`60`) cards remain.
+The shoe is primarily replaced at the round boundary: `dealInitialCards()` swaps in a fresh shuffled 6-deck shoe before dealing whenever fewer than `RESHUFFLE_THRESHOLD` (`80`) cards remain.
 
 Every draw still goes through `dealCard()`, which keeps a last-resort emergency refill: if the remaining deck is below `20` cards mid-round, it replaces the shoe before drawing. With the round-boundary swap in place this fallback is practically unreachable.
 
@@ -393,7 +393,7 @@ These are the main differences between the current code and a stricter physical 
 - The `playing` phase is not serialized by seat order; players can act based on whether their own active hand is actionable.
 - Split aces can be hit, doubled, and otherwise played like normal split hands.
 - Ten-valued cards can be split across rank boundaries, such as `K + Q`.
-- The shoe is replaced at the round boundary when fewer than `60` cards remain instead of using a realistic cut-card/discard flow.
+- The shoe is replaced at the round boundary when fewer than `80` cards remain instead of using a realistic cut-card/discard flow.
 - Randomness comes from the browser CSPRNG (`crypto.getRandomValues`), which is strong but not a certified/audited casino RNG.
 
 ## 13. Practical Reading Of The Game's Math

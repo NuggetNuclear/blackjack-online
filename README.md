@@ -25,7 +25,7 @@ Live app: <https://blackjack-online-one.vercel.app>
 
 ### Prerequisites
 
-- Node.js 18+
+- Node.js 22.22.2+ (22.x), 24.15+ (24.x), or 26+
 - npm 9+
 
 ### Run locally
@@ -47,7 +47,7 @@ npm run build
 npm start
 ```
 
-Tests use Node's built-in test runner with type stripping (Node 22.6+ required) — no test dependencies.
+`npm test` runs the engine/persistence unit tests plus React flow regressions using `tsx` and jsdom. The UI suite covers invitations and hydration, spectator entry, competing/cancelled connections, deadlines, all-in balances, clipboard failure, dialogs, and blocked storage. Run `npm run test:unit` or `npm run test:ui` separately when narrowing a regression.
 
 ## Tech Stack
 
@@ -81,7 +81,13 @@ Current timer values:
 - Player action timeout: `10s`
 - Results auto-advance: `5s`
 
-All countdowns are derived from host timestamps stored in the shared game state, so peers render the same timer values after sync.
+Countdowns use canonical host timestamps. Peers synchronize their clock through matching ping/pong samples; a conservative return-trip bound can close their visible window slightly early instead of extending it due to network latency. Betting stays disabled until the clock is synchronized, and the host independently rejects bets received after its deadline. The first window starts when the host opens the table, not while players are waiting.
+
+## Entry flow
+
+The lobby and waiting room share the original table's vivid green felt, warm wood rim, red card backs, and yellow actions. The entry screen uses **Blackjack Online**, **Enter**, and **Your name**, with a single submit action for solo, create, or join. Invitations preselect joining; spectator mode remains selected when submitting. Connection attempts are mutually exclusive, cancellable, and preserve the entered name/code on failure. Local storage failures fall back to session memory. No account or password is introduced.
+
+`TableSurface` and `CasinoBrand` are used by both entry and the live game. Entry controls sit directly on the felt and keep the original raised button style and system typography. The original playing-card faces and backs are shared with the live game. Entry text omits shadows, and card corner ranks use stronger contrast. The waiting room uses the same shell; small screens use a taller table outline so expanded forms remain inside the playable surface.
 
 ## Implemented Table Rules
 
@@ -182,3 +188,7 @@ No environment variables are needed today.
 - Broadcasts are sanitized (`deck` stripped, dealer hole card masked), but the host player can always inspect the full shoe locally — hosting and playing in the same room requires trusting the host.
 - The `chat` message type exists in the transport layer but there is no chat reducer or UI.
 - PeerJS cloud signaling is convenient for small rooms, but it is not a production-grade multiplayer backend.
+
+### Dependency checks
+
+The framework and compatible dependencies were updated during the entry redesign. A scoped `minimatch` override under `@typescript-eslint/typescript-estree` keeps the lint dependency patched without downgrading Next.js. Both full `npm audit` and the production-only audit report zero vulnerabilities at the time of this change.

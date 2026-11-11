@@ -21,6 +21,9 @@ import {
   playerSplit,
   playerSurrender,
   playerInsure,
+  playerDeclineInsurance,
+  hasPendingInsuranceDecision,
+  autoStandTimedOutPlayers,
   shouldDealerHit,
   resolveResults,
   sanitizeStateForBroadcast,
@@ -115,6 +118,32 @@ describe('dealer rules', () => {
       players: { p1: { id: 'p1', name: 'P', hands: [hand([c('10'), c('9'), c('5')], { busted: true })], activeHandIndex: 1, balance: 100, ready: true } },
     });
     assert.equal(shouldDealerHit(allBusted), false);
+
+    const allSurrendered = baseState({
+      phase: 'dealer-turn',
+      dealer,
+      players: { p1: { id: 'p1', name: 'P', hands: [hand([c('10'), c('6')], { surrendered: true, stood: true })], activeHandIndex: 1, balance: 100, ready: true } },
+    });
+    assert.equal(shouldDealerHit(allSurrendered), false);
+
+    const bustedPlusSittingOut = baseState({
+      phase: 'dealer-turn',
+      dealer,
+      players: {
+        p1: { id: 'p1', name: 'P1', hands: [hand([c('10'), c('9'), c('5')], { busted: true })], activeHandIndex: 1, balance: 100, ready: true },
+        p2: { id: 'p2', name: 'P2', hands: [hand([], { bet: 0, stood: true })], activeHandIndex: 0, balance: 100, ready: false },
+      },
+    });
+    assert.equal(shouldDealerHit(bustedPlusSittingOut), false);
+
+    const allNaturalBlackjacks = baseState({
+      phase: 'dealer-turn',
+      dealer,
+      players: {
+        p1: { id: 'p1', name: 'P1', hands: [hand([c('A'), c('K')], { blackjack: true, stood: true })], activeHandIndex: 1, balance: 100, ready: true },
+      },
+    });
+    assert.equal(shouldDealerHit(allNaturalBlackjacks), false);
   });
 });
 
@@ -143,6 +172,26 @@ describe('splitting', () => {
     assert.equal(canSplit(hand([c('8'), c('8')]), 100, settings, 4), false); // max 4 hands
     assert.equal(canSplit(hand([c('8'), c('8')]), 5, settings, 1), false); // cannot afford
     assert.equal(canSplit(hand([c('8'), c('8')]), 100, { ...settings, splitEnabled: false }, 1), false);
+  });
+
+  it('resets insuranceBet to 0 on the second split hand', () => {
+    const state = baseState({
+      deck: deckWithTop([c('3', 'hearts'), c('4', 'diamonds')]),
+      players: {
+        p1: {
+          id: 'p1',
+          name: 'P',
+          hands: [hand([c('8', 'spades'), c('8', 'hearts')], { insuranceBet: 5 })],
+          activeHandIndex: 0,
+          balance: 100,
+          ready: true,
+        },
+      },
+    });
+    const next = playerSplit(state, 'p1');
+    const player = statePlayer(next);
+    assert.equal(player.hands[0].insuranceBet, 5);
+    assert.equal(player.hands[1].insuranceBet, 0);
   });
 
   it('advances past split hands that both auto-stand on 21 (stuck-hand regression)', () => {
@@ -241,6 +290,23 @@ describe('double down and surrender', () => {
     assert.equal(player.hands[0].surrendered, true);
     assert.equal(player.balance, 105);
   });
+
+  it('rejects surrender on split hands', () => {
+    const state = baseState({
+      players: {
+        p1: {
+          id: 'p1',
+          name: 'P',
+          hands: [hand([c('8'), c('6')]), hand([c('8'), c('7')])],
+          activeHandIndex: 0,
+          balance: 100,
+          ready: true,
+        },
+      },
+    });
+    const next = playerSurrender(state, 'p1');
+    assert.equal(next, state); // unchanged
+  });
 });
 
 describe('insurance', () => {
@@ -286,6 +352,54 @@ describe('insurance', () => {
       players: { p1: { id: 'p1', name: 'P', hands: [hand([c('10'), c('6')])], activeHandIndex: 0, balance: 100, ready: true } },
     });
     assert.equal(playerInsure(ruleOff, 'p1'), ruleOff);
+  });
+
+  it('tracks pending insurance decisions and allows declining insurance', () => {
+    const state = baseState({
+      dealer: dealerAce(),
+      turnStartedAt: 1000,
+      players: { p1: { id: 'p1', name: 'P', hands: [hand([c('10'), c('6')])], activeHandIndex: 0, balance: 100, ready: true } },
+    });
+    assert.equal(hasPendingInsuranceDecision(state), true);
+
+    const declined = playerDeclineInsurance(state, 'p1');
+    assert.equal(declined.players.p1.hands[0].insuranceDecided, true);
+    assert.equal(hasPendingInsuranceDecision(declined), false);
+
+    const insured = playerInsure(state, 'p1');
+    assert.equal(insured.players.p1.hands[0].insuranceDecided, true);
+    assert.ok(insured.turnStartedAt >= 1000);
+    assert.equal(hasPendingInsuranceDecision(insured), false);
+  });
+});
+
+describe('autoStandTimedOutPlayers', () => {
+  it('stands all remaining playable hands across players simultaneously', () => {
+    const state = baseState({
+      players: {
+        p1: {
+          id: 'p1',
+          name: 'P1',
+          hands: [hand([c('8'), c('5')]), hand([c('8'), c('6')])],
+          activeHandIndex: 0,
+          balance: 100,
+          ready: true,
+        },
+        p2: {
+          id: 'p2',
+          name: 'P2',
+          hands: [hand([c('10'), c('7')], { stood: true })],
+          activeHandIndex: 1,
+          balance: 100,
+          ready: true,
+        },
+      },
+    });
+    const next = autoStandTimedOutPlayers(state);
+    assert.equal(next.players.p1.hands[0].stood, true);
+    assert.equal(next.players.p1.hands[1].stood, true);
+    assert.equal(next.players.p1.activeHandIndex, 2);
+    assert.equal(next.players.p2, state.players.p2);
   });
 });
 
@@ -399,6 +513,7 @@ describe('broadcast sanitization', () => {
     assert.equal(sanitized.dealer.cards[0].rank, 'A'); // up-card intact
     const maskedHole = sanitized.dealer.cards[1];
     assert.equal(maskedHole.faceUp, false);
+    assert.equal(maskedHole.rank, '2'); // placeholder never triggers false 21 with a 10
     assert.notEqual(`${maskedHole.rank}-${maskedHole.suit}`, '7-diamonds'); // real card not leaked
     // Original state untouched
     assert.equal(state.dealer.cards[1].rank, '7');

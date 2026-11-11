@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import Chip from './Chip';
 import { sounds } from '@/features/blackjack/lib/sounds';
 import { useLanguage } from '@/shared/i18n/useLanguage';
@@ -30,10 +31,10 @@ export default function BettingPanel({
   bettingTimeExpired,
 }: BettingPanelProps) {
   const { t } = useLanguage();
+  const [clickLocked, setClickLocked] = useState(false);
 
-  // BUG-FIX: Merge `disabled` with `bettingTimeExpired` to create a single
-  // interactivity gate. When time expires, ALL chip/button interactions are blocked.
-  const isLocked = disabled || bettingTimeExpired;
+  // Merge `disabled` with `bettingTimeExpired` and `clickLocked`
+  const isLocked = disabled || bettingTimeExpired || clickLocked;
 
   const addChip = (value: number) => {
     if (isLocked) return;
@@ -51,23 +52,23 @@ export default function BettingPanel({
   };
 
   return (
-    <div className={`flex flex-col items-center gap-3 animate-fade-in ${bettingTimeExpired ? 'opacity-50' : ''}`}>
+    <div className={`flex w-full max-w-md flex-col items-center gap-2 sm:gap-3 px-2 animate-fade-in ${bettingTimeExpired ? 'opacity-50' : ''}`}>
       {/* BUG-FIX: Show "Time's Up!" overlay when betting window closes */}
       {bettingTimeExpired && (
-        <div className="rounded-full border border-red-500/30 bg-red-900/40 px-4 py-1.5 text-sm font-bold uppercase tracking-widest text-red-300 animate-bounce-in">
+        <div className="rounded-full border border-red-500/30 bg-red-900/40 px-4 py-1 text-xs sm:text-sm font-bold uppercase tracking-widest text-red-300 animate-bounce-in tabular-nums">
           {t.betting.closesIn} 0s
         </div>
       )}
 
       {currentBet > 0 && !bettingTimeExpired && (
-        <div className="rounded-full border border-yellow-500/15 bg-black/25 px-4 py-2 text-xl font-bold text-yellow-300 text-outline-sm animate-bounce-in">
+        <div className="rounded-full border border-yellow-500/25 bg-black/45 px-3.5 py-1 sm:px-4 sm:py-1.5 text-sm sm:text-lg font-bold text-yellow-300 text-outline-sm animate-bounce-in tabular-nums">
           {t.betting.bet}: {formatCurrency(currentBet)}
         </div>
       )}
 
-      <div className="flex gap-2.5 items-end">
+      <div className="flex max-w-full items-start justify-center gap-1.5 sm:gap-2.5">
         {CHIP_VALUES.map((value, i) => (
-          <div key={value} className="flex flex-col items-center gap-1">
+          <div key={value} className="flex flex-col items-center gap-1.5">
             <Chip
               value={value}
               onClick={() => addChip(value)}
@@ -78,42 +79,60 @@ export default function BettingPanel({
             />
             {currentBet >= value && (
               <button
+                type="button"
                 onClick={() => removeChip(value)}
-                className="text-[10px] text-red-400/80 hover:text-red-300 transition-colors font-semibold"
+                className="min-h-[26px] rounded-full border border-red-400/35 bg-black/60 px-2 py-0.5 text-[10px] font-bold text-red-200 hover:bg-red-950/70 transition-colors"
                 disabled={isLocked}
               >
-                {t.betting.undo}
+                -{value >= 1000 ? `${value / 1000}K` : value}
               </button>
             )}
           </div>
         ))}
       </div>
 
-      <div className="flex gap-3">
+      <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3">
         <button
-          onClick={() => { if (!isLocked) { sounds.bet(); onAllIn(); } }}
+          type="button"
+          onClick={() => {
+            if (!isLocked) {
+              setClickLocked(true);
+              sounds.bet();
+              onAllIn();
+              setTimeout(() => setClickLocked(false), 350);
+            }
+          }}
           disabled={isLocked || balance <= 0}
-          className="btn-cartoon btn-fire px-6 py-2.5 bg-red-500 hover:bg-red-400 disabled:bg-gray-600
-            text-white text-sm border-red-700"
+          className="btn-cartoon min-h-[42px] sm:min-h-[46px] px-4 sm:px-6 py-2 bg-red-600 hover:bg-red-500 disabled:bg-gray-600
+            text-white text-xs sm:text-sm border-red-800"
         >
-          🔥 {t.betting.allIn} 🔥
+          {t.betting.allIn}
         </button>
 
         <button
-          onClick={() => { if (!isLocked) { sounds.bet(); onConfirmBet(); } }}
+          type="button"
+          onClick={() => {
+            if (!isLocked) {
+              setClickLocked(true);
+              sounds.bet();
+              onConfirmBet();
+              setTimeout(() => setClickLocked(false), 350);
+            }
+          }}
           disabled={isLocked || currentBet <= 0}
-          className="btn-cartoon px-6 py-2.5 bg-yellow-400 hover:bg-yellow-300 disabled:bg-gray-600
-            text-gray-900 text-sm border-yellow-600"
+          className="btn-cartoon min-h-[42px] sm:min-h-[46px] px-5 sm:px-7 py-2 bg-yellow-400 hover:bg-yellow-300 disabled:bg-gray-600
+            text-gray-950 text-xs sm:text-sm border-yellow-700"
         >
           {t.betting.deal}
         </button>
 
         {currentBet > 0 && (
           <button
+            type="button"
             onClick={() => { if (!isLocked) onBetChange(0); }}
             disabled={isLocked}
-            className="btn-cartoon px-4 py-2.5 bg-gray-500 hover:bg-gray-400
-              text-white/80 text-xs border-gray-700"
+            className="btn-cartoon min-h-[42px] sm:min-h-[46px] px-3.5 sm:px-4 py-2 bg-[#14502a] hover:bg-[#1c6833]
+              text-white/90 text-xs border-[#082712]"
           >
             {t.betting.clear}
           </button>

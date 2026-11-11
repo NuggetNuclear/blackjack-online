@@ -8,6 +8,8 @@ import {
   PLAYER_ACTION_TIMEOUT_MS,
   allPlayersFinished,
   isDealerBlackjackPending,
+  hasPendingInsuranceDecision,
+  autoStandTimedOutPlayers,
   flipDealerHoleCard,
   shouldDealerHit,
   dealerHitOne,
@@ -16,10 +18,10 @@ import {
   dealInitialCards,
   hasActiveBets,
   restartPhaseTimer,
-  playerStand,
   addTableMessage,
 } from '@/features/blackjack/lib/blackjack';
 import { sounds } from '@/features/blackjack/lib/sounds';
+import { useLanguage } from '@/shared/i18n/useLanguage';
 
 interface UseDealerProgressionParams {
   gameState: GameState;
@@ -33,6 +35,7 @@ export function useDealerProgression({
   gameState, gameStateRef, isHostRef,
   syncGameState, onResultsTimeout,
 }: UseDealerProgressionParams) {
+  const { t } = useLanguage();
   const dealingRef = useRef(false);
 
   // BUG-FIX: Reset dealingRef at the START of each betting phase.
@@ -45,9 +48,23 @@ export function useDealerProgression({
     }
   }, [gameState.phase, gameState.phaseStartedAt]);
 
+  // Auto-clear transient table messages in a dedicated effect so phaseStartedAt
+  // updates do not prematurely cancel the cleanup timer.
+  useEffect(() => {
+    if (!gameState.tableOpen || !isHostRef.current || !gameState.tableMessage) return;
+    const msgId = gameState.tableMessage.id;
+    const timer = setTimeout(() => {
+      if (gameStateRef.current.tableMessage?.id === msgId) {
+        syncGameState({ ...gameStateRef.current, tableMessage: undefined });
+      }
+    }, 4000);
+    return () => clearTimeout(timer);
+  }, [gameState.tableOpen, gameState.tableMessage, syncGameState, gameStateRef, isHostRef]);
+
   // Deal as soon as everyone is ready.
   useEffect(() => {
-    if (gameState.phase !== 'betting') return;
+    const currentPhase = gameState.phase;
+    if (currentPhase !== 'betting' || !gameState.tableOpen) return;
     if (!isHostRef.current) return;
 
     const players = Object.values(gameState.players);
@@ -63,13 +80,18 @@ export function useDealerProgression({
         sounds.cardDeal();
         syncGameState(dealInitialCards(gameStateRef.current));
       }, 600);
-      return () => clearTimeout(timer);
+      return () => {
+        clearTimeout(timer);
+        if (currentPhase === 'betting') {
+          dealingRef.current = false;
+        }
+      };
     }
   }, [gameState, syncGameState, gameStateRef, isHostRef]);
 
   // Force the betting phase to move after 20s. If nobody bet, restart the counter.
   useEffect(() => {
-    if (gameState.phase !== 'betting' || !isHostRef.current) return;
+    if (gameState.phase !== 'betting' || !gameState.tableOpen || !isHostRef.current) return;
     const elapsed = Date.now() - gameState.phaseStartedAt;
     const remaining = Math.max(0, BETTING_TIMEOUT_MS - elapsed);
     const timer = setTimeout(() => {
@@ -86,25 +108,17 @@ export function useDealerProgression({
       }
 
       let newState = restartPhaseTimer(gameStateRef.current);
-      newState = addTableMessage(newState, 'No bets placed in time. Restarting timer...');
+      newState = addTableMessage(newState, t.table.noBetsRestart);
       syncGameState(newState);
-
-      // Clear the message after 5 seconds if it's still there
-      setTimeout(() => {
-        if (
-          gameStateRef.current.phase === 'betting' &&
-          gameStateRef.current.tableMessage?.text === 'No bets placed in time. Restarting timer...'
-        ) {
-          syncGameState({ ...gameStateRef.current, tableMessage: undefined });
-        }
-      }, 5000);
     }, remaining);
-    return () => clearTimeout(timer);
-  }, [gameState.phase, gameState.phaseStartedAt, syncGameState, gameStateRef, isHostRef]);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [gameState.tableOpen, gameState.phase, gameState.phaseStartedAt, syncGameState, gameStateRef, isHostRef, t.table.noBetsRestart]);
 
   // Move results to the next betting window after NEXT_ROUND_TIMEOUT_MS (5s).
   useEffect(() => {
-    if (gameState.phase !== 'results' || !isHostRef.current) return;
+    if (gameState.phase !== 'results' || !gameState.tableOpen || !isHostRef.current) return;
     const elapsed = Date.now() - gameState.phaseStartedAt;
     const remaining = Math.max(0, NEXT_ROUND_TIMEOUT_MS - elapsed);
     const timer = setTimeout(() => {
@@ -112,12 +126,12 @@ export function useDealerProgression({
       onResultsTimeout();
     }, remaining);
     return () => clearTimeout(timer);
-  }, [gameState.phase, gameState.phaseStartedAt, onResultsTimeout, gameStateRef, isHostRef]);
+  }, [gameState.tableOpen, gameState.phase, gameState.phaseStartedAt, onResultsTimeout, gameStateRef, isHostRef]);
 
-  // 10-second player action timeout: auto-stand the current active player.
+  // 10-second player action timeout: auto-stand all remaining actionable hands.
   // The timer resets whenever turnStartedAt changes (i.e., after any player action).
   useEffect(() => {
-    if (gameState.phase !== 'playing') return;
+    if (gameState.phase !== 'playing' || !gameState.tableOpen) return;
     if (!isHostRef.current) return;
 
     const elapsed = Date.now() - gameState.turnStartedAt;
@@ -126,24 +140,17 @@ export function useDealerProgression({
     const timer = setTimeout(() => {
       const currentState = gameStateRef.current;
       if (currentState.phase !== 'playing') return;
-
-      // Find the first player with an actionable hand
-      for (const [pid, player] of Object.entries(currentState.players)) {
-        const hand = player.hands[player.activeHandIndex];
-        if (hand && hand.cards.length >= 2 && !hand.stood && !hand.busted && !hand.blackjack && !hand.surrendered) {
-          // Force stand this player
-          const newState = playerStand(currentState, pid);
-          syncGameState(newState);
-          return;
-        }
+      const newState = autoStandTimedOutPlayers(currentState);
+      if (newState !== currentState) {
+        syncGameState(newState);
       }
     }, remaining);
     return () => clearTimeout(timer);
-  }, [gameState.phase, gameState.turnStartedAt, syncGameState, gameStateRef, isHostRef]);
+  }, [gameState.tableOpen, gameState.phase, gameState.turnStartedAt, syncGameState, gameStateRef, isHostRef]);
 
   // Dealer turn — step 1: flip hole card
   useEffect(() => {
-    if (gameState.phase !== 'playing') return;
+    if (gameState.phase !== 'playing' || !gameState.tableOpen) return;
     if (!isHostRef.current) return;
 
     // Check if dealer has BJ based on actual card values (the dealer.blackjack
@@ -151,9 +158,12 @@ export function useDealerProgression({
     const dealerHasBJ = isDealerBlackjackPending(gameState);
 
     if (dealerHasBJ) {
-      // Anchor the reveal to the start of the phase so unrelated state updates
-      // (which re-run this effect) cannot keep pushing the flip back.
-      const remaining = Math.max(0, 1800 - (Date.now() - gameState.phaseStartedAt));
+      // Give eligible players a 5s window to decide on insurance when dealer shows Ace;
+      // once all eligible players have decided (or if insurance doesn't apply), flip quickly.
+      const waitingOnInsurance = hasPendingInsuranceDecision(gameState);
+      const revealWindowMs = waitingOnInsurance ? 5000 : 1200;
+      const anchor = waitingOnInsurance ? gameState.phaseStartedAt : gameState.turnStartedAt;
+      const remaining = Math.max(0, revealWindowMs - (Date.now() - anchor));
       const timer = setTimeout(() => {
         if (gameStateRef.current.phase !== 'playing') return;
         sounds.cardDeal();
@@ -178,7 +188,7 @@ export function useDealerProgression({
 
   // Dealer turn — step 2: draw cards one by one
   useEffect(() => {
-    if (gameState.phase !== 'dealer-turn') return;
+    if (gameState.phase !== 'dealer-turn' || !gameState.tableOpen) return;
     if (!isHostRef.current) return;
 
     if (shouldDealerHit(gameState)) {

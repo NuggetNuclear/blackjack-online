@@ -1,8 +1,7 @@
 'use client';
 
-import { useLayoutEffect, useRef } from 'react';
-
-import { Card as CardType, suitSymbol, suitColor } from '@/features/blackjack/lib/blackjack';
+import { memo, useLayoutEffect, useRef } from 'react';
+import { type Card as CardType, suitSymbol, suitColor } from '@/features/blackjack/lib/blackjack';
 
 interface CardProps {
   card: CardType;
@@ -12,13 +11,19 @@ interface CardProps {
   animationType?: 'slide' | 'drop';
 }
 
-export default function Card({ card, index = 0, small = false, animated = true, animationType = 'slide' }: CardProps) {
+function Card({ card, index = 0, small = false, animated = true, animationType = 'slide' }: CardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
-  const w = small ? 'w-13 h-[72px]' : 'w-[76px] h-[106px]';
-  const textSize = small ? 'text-[11px]' : 'text-base';
+  const animatedOnceRef = useRef(false);
+  const w = small ? 'w-11 h-[62px] sm:w-13 sm:h-[72px]' : 'w-[58px] h-[82px] sm:w-[76px] sm:h-[106px]';
+  const textSize = small ? 'text-[10px] sm:text-[11px]' : 'text-xs sm:text-base';
+  const overlapClass = index > 0 ? (small ? '-ml-3 sm:-ml-2.5' : '-ml-4 sm:-ml-3.5') : '';
   
   useLayoutEffect(() => {
     if (!animated || !cardRef.current || animationType !== 'slide') return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (typeof cardRef.current.animate !== 'function') return;
+    if (animatedOnceRef.current) return;
+    animatedOnceRef.current = true;
     
     // Instead of completely generic CSS animations, we use Native Web Animations
     // to dynamically calculate the exact pixel difference between the deck and this card's slot.
@@ -54,10 +59,9 @@ export default function Card({ card, index = 0, small = false, animated = true, 
     return (
       <div
         ref={cardRef}
-        className={`${w} rounded-xl border-[3px] border-red-800 shadow-xl flex items-center justify-center relative shrink-0 overflow-hidden ${animClass}`}
+        className={`${w} ${overlapClass} rounded-xl border-[2.5px] sm:border-[3px] border-red-800 shadow-xl flex items-center justify-center relative shrink-0 overflow-hidden ${animClass}`}
         style={{
           background: '#8B0000',
-          marginLeft: index > 0 ? (small ? '-10px' : '-14px') : '0',
           zIndex: index,
           animationDelay: `${index * 0.12}s`,
           animationFillMode: 'backwards',
@@ -70,10 +74,10 @@ export default function Card({ card, index = 0, small = false, animated = true, 
           backgroundSize: small ? '10px 10px' : '14px 14px',
         }} />
         {/* Inner border frame */}
-        <div className={`absolute ${small ? 'inset-[4px]' : 'inset-[6px]'} border-[2px] border-yellow-400/25 rounded-lg`} />
+        <div className={`absolute ${small ? 'inset-[3px]' : 'inset-[4px] sm:inset-[6px]'} border-[1.5px] sm:border-[2px] border-yellow-400/25 rounded-lg`} />
         {/* Center emblem */}
         <div className="relative z-10 flex items-center justify-center">
-          <span className={`${small ? 'text-lg' : 'text-3xl'} text-yellow-400/40 font-bold`}>♠</span>
+          <span className={`${small ? 'text-base' : 'text-xl sm:text-3xl'} text-yellow-400/40 font-bold`}>♠</span>
         </div>
       </div>
     );
@@ -81,35 +85,37 @@ export default function Card({ card, index = 0, small = false, animated = true, 
 
   const color = suitColor(card.suit);
   const symbol = suitSymbol(card.suit);
+  const cornerColor = color === '#ef4444' ? '#b91c1c' : color;
 
   return (
     <div
       ref={cardRef}
-      className={`${w} bg-white rounded-xl border-[3px] flex flex-col justify-between relative select-none shrink-0 ${animClass}`}
+      className={`${w} ${overlapClass} bg-white rounded-xl border-[2.5px] sm:border-[3px] flex flex-col justify-between relative select-none shrink-0 ${animClass}`}
       style={{
-        marginLeft: index > 0 ? (small ? '-10px' : '-14px') : '0',
         zIndex: index,
-        padding: small ? '3px' : '5px',
+        padding: small ? '3px' : '4px 5px',
         animationDelay: `${index * 0.12}s`,
         animationFillMode: 'backwards',
         borderColor: color === '#ef4444' ? '#fca5a5' : '#94a3b8',
         boxShadow: `0 4px 12px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.6)`,
       }}
     >
-      <div className={`${textSize} font-bold leading-none`} style={{ color }}>
+      <div className={`${textSize} font-bold leading-none`} style={{ color: cornerColor }}>
         {card.rank}
-        <span className={`block ${small ? 'text-[9px]' : 'text-xs'}`}>{symbol}</span>
+        <span className={`block ${small ? 'text-[8px] sm:text-[9px]' : 'text-[10px] sm:text-xs'}`}>{symbol}</span>
       </div>
-      <div className={`${small ? 'text-xl' : 'text-3xl'} text-center leading-none`} style={{ color, filter: 'drop-shadow(0 1px 1px rgba(0,0,0,0.15))' }}>
+      <div className={`${small ? 'text-lg sm:text-xl' : 'text-xl sm:text-3xl'} text-center leading-none`} style={{ color }}>
         {symbol}
       </div>
       <div
         className={`${textSize} font-bold leading-none self-end rotate-180`}
-        style={{ color }}
+        style={{ color: cornerColor }}
       >
         {card.rank}
-        <span className={`block ${small ? 'text-[9px]' : 'text-xs'}`}>{symbol}</span>
+        <span className={`block ${small ? 'text-[8px] sm:text-[9px]' : 'text-[10px] sm:text-xs'}`}>{symbol}</span>
       </div>
     </div>
   );
 }
+
+export default memo(Card);

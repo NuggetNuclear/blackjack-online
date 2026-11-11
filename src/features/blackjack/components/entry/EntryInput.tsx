@@ -14,5 +14,5 @@ export default function EntryInput({
   ...props
 }: EntryInputProps) {
   const classes = ['entry-input', invalid ? 'entry-input--invalid' : '', className].filter(Boolean).join(' ');
-  return <input ref={ref} className={classes} {...props} />;
+  return <input ref={ref} className={classes} aria-invalid={invalid || undefined} {...props} />;
 }
